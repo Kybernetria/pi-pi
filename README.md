@@ -56,7 +56,7 @@ They are intentionally **not** generated as public Pi skills.
 
 ## Validation status
 
-`validate_certified_node` is currently a **heuristic, source-based validator**.
+`validate_certified_node` is currently an **AST-assisted, source-based validator**.
 
 It checks things like:
 
@@ -64,11 +64,11 @@ It checks things like:
 - manifest structure
 - handler coverage
 - schema presence
-- bootstrap keywords/patterns
+- AST-checked bootstrap structure
 - forbidden direct certified-node imports
 - non-standalone dependency specs such as `file:`, `link:`, and `workspace:`
 
-It does **not** yet do full AST or semantic validation.
+It does **not** yet do full semantic validation.
 
 ## Dependency strategy
 

@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 import type {
   JSONSchemaLite,
   ProtocolHandler,
@@ -11,7 +12,7 @@ export const SDK_DEPENDENCY = "^0.1.0";
 export const PI_CODING_AGENT_VERSION = "^0.65.2";
 export const NODE_TYPES_VERSION = "^24.5.2";
 export const TYPESCRIPT_VERSION = "^5.9.3";
-export const VALIDATION_MODE = "heuristic-source";
+export const VALIDATION_MODE = "ast-assisted-source";
 
 export interface TemplateDescribeInput {
   includeCommandExamples?: boolean;
@@ -162,6 +163,20 @@ export interface ValidateCertifiedNodeOutput {
   detectedRelevantFiles: string[];
 }
 
+interface SourceAstAnalysis {
+  sourceFile: ts.SourceFile;
+  parseErrors: string[];
+  importSpecifiers: string[];
+  exportedNames: Set<string>;
+}
+
+interface ExtensionBootstrapAnalysis {
+  hasEnsureProtocolFabricCall: boolean;
+  hasRegisterProtocolNodeCall: boolean;
+  hasSessionStartRegistration: boolean;
+  hasSessionShutdownUnregister: boolean;
+}
+
 const CERTIFICATION_CHECKLIST = [
   "package.json#pi declares the package as a Pi package",
   "pi.protocol.json exists and matches the package handlers",
@@ -226,7 +241,7 @@ export async function describeCertifiedTemplate(
       "scaffold_collaborating_nodes is a pure generation provide that returns two package plans and their file contents.",
       "Agent-backed worker mode is currently an agent-backed-ready scaffold pattern, not a fully realized embedded Pi agent runtime.",
       "/pi-pi-new and /pi-pi-new-pair are Pi command projections that may optionally write generated files to disk.",
-      `validate_certified_node currently uses ${VALIDATION_MODE} checks rather than full AST or semantic validation.`,
+      `validate_certified_node currently uses ${VALIDATION_MODE} checks rather than full semantic validation.`,
     ],
   };
 }
@@ -645,14 +660,32 @@ export async function validateCertifiedNode(
 
   let exportedHandlerNames = new Set<string>();
   let handlersSource = "";
+  let handlerAstAnalysis: SourceAstAnalysis | null = null;
   if (await exists(handlersPath)) {
     handlersSource = await fs.readFile(handlersPath, "utf8");
-    exportedHandlerNames = extractExportedHandlerNames(handlersSource);
+    handlerAstAnalysis = analyzeSourceAst(handlersPath, handlersSource);
+    if (handlerAstAnalysis.parseErrors.length > 0) {
+      violations.push({
+        rule: "handlers.parse",
+        message: `protocol handlers source contains parse errors: ${handlerAstAnalysis.parseErrors[0]}`,
+        suggestedFix: "Fix protocol/handlers.ts so it parses as valid TypeScript or JavaScript.",
+      });
+    }
+    exportedHandlerNames = handlerAstAnalysis.exportedNames;
   }
 
   let extensionSource = "";
+  let extensionAstAnalysis: SourceAstAnalysis | null = null;
   if (await exists(extensionPath)) {
     extensionSource = await fs.readFile(extensionPath, "utf8");
+    extensionAstAnalysis = analyzeSourceAst(extensionPath, extensionSource);
+    if (extensionAstAnalysis.parseErrors.length > 0) {
+      violations.push({
+        rule: "extension.parse",
+        message: `extension source contains parse errors: ${extensionAstAnalysis.parseErrors[0]}`,
+        suggestedFix: "Fix extensions/index.ts so it parses as valid TypeScript or JavaScript.",
+      });
+    }
   }
 
   if (manifest) {
@@ -755,8 +788,10 @@ export async function validateCertifiedNode(
     }
   }
 
-  if (extensionSource) {
-    if (!extensionSource.includes("ensureProtocolFabric")) {
+  if (extensionAstAnalysis) {
+    const bootstrapAnalysis = analyzeExtensionBootstrap(extensionAstAnalysis.sourceFile);
+
+    if (!bootstrapAnalysis.hasEnsureProtocolFabricCall) {
       violations.push({
         rule: "bootstrap.ensure-fabric",
         message: "Extension bootstrap does not call ensureProtocolFabric",
@@ -764,7 +799,7 @@ export async function validateCertifiedNode(
       });
     }
 
-    if (!extensionSource.includes("registerProtocolNode")) {
+    if (!bootstrapAnalysis.hasRegisterProtocolNodeCall) {
       violations.push({
         rule: "bootstrap.register-node",
         message: "Extension bootstrap does not call registerProtocolNode",
@@ -772,7 +807,7 @@ export async function validateCertifiedNode(
       });
     }
 
-    if (!extensionSource.includes("session_start")) {
+    if (!bootstrapAnalysis.hasSessionStartRegistration) {
       violations.push({
         rule: "bootstrap.session-start",
         message: "Extension bootstrap does not register on session_start",
@@ -780,7 +815,7 @@ export async function validateCertifiedNode(
       });
     }
 
-    if (!extensionSource.includes("session_shutdown")) {
+    if (!bootstrapAnalysis.hasSessionShutdownUnregister) {
       violations.push({
         rule: "bootstrap.session-shutdown",
         message: "Extension bootstrap does not unregister on session_shutdown",
@@ -792,8 +827,18 @@ export async function validateCertifiedNode(
   const sourceFiles = await collectSourceFiles(packageDir);
   for (const filePath of sourceFiles) {
     const source = await fs.readFile(filePath, "utf8");
-    for (const specifier of extractImportSpecifiers(source)) {
-      if (isForbiddenCertifiedNodeImport(specifier, packageJson?.name)) {
+    const sourceAstAnalysis = analyzeSourceAst(filePath, source);
+
+    if (sourceAstAnalysis.parseErrors.length > 0) {
+      violations.push({
+        rule: `source.parse.${path.relative(packageDir, filePath).replaceAll(path.sep, ".")}`,
+        message: `Source file ${path.relative(packageDir, filePath)} contains parse errors: ${sourceAstAnalysis.parseErrors[0]}`,
+        suggestedFix: "Fix the source file so it parses as valid TypeScript or JavaScript.",
+      });
+    }
+
+    for (const specifier of sourceAstAnalysis.importSpecifiers) {
+      if (isForbiddenCertifiedNodeImport(specifier, getPackageName(packageJson))) {
         violations.push({
           rule: "imports.forbidden-certified-node",
           message: `Forbidden certified-node import detected in ${path.relative(packageDir, filePath)}: ${specifier}`,
@@ -1429,7 +1474,7 @@ ${input.provides.map((provide) => `- ${provide.name}: ${provide.description}`).j
 - ` + "`scaffold_certified_node`" + ` is a pure generation provide. It returns a file plan and file contents.
 - Writing files to disk is an operator concern handled by command projections such as ` + "`/pi-pi-new`" + `.
 - If you are developing locally against an unpublished SDK, replace ` + "`@kyvernitria/pi-protocol-sdk`" + ` with a local path or workspace dependency.
-- The current validator is heuristic and source-based. It is not full AST or semantic validation yet.
+- The current validator is AST-assisted and source-based. It is not full semantic validation yet.
 
 ## Local checklist
 
@@ -1505,53 +1550,190 @@ async function walk(currentDir: string, results: string[]): Promise<void> {
   }
 }
 
-function extractExportedHandlerNames(source: string): Set<string> {
-  const names = new Set<string>();
-  const patterns = [
-    /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g,
-    /export\s+const\s+([A-Za-z_$][\w$]*)/g,
-  ];
+function analyzeSourceAst(filePath: string, source: string): SourceAstAnalysis {
+  const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
+  const importSpecifiers: string[] = [];
+  const exportedNames = new Set<string>();
+  const parseDiagnostics = ts.transpileModule(source, {
+    fileName: filePath,
+    reportDiagnostics: true,
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+    },
+  }).diagnostics ?? [];
 
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(source))) {
-      names.add(match[1]);
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      importSpecifiers.push(node.moduleSpecifier.text);
     }
-  }
 
-  const reExportPattern = /export\s*\{\s*([^}]+)\s*\}(?:\s+from\s+["'][^"']+["'])?/g;
-  let reExportMatch: RegExpExecArray | null;
-  while ((reExportMatch = reExportPattern.exec(source))) {
-    const exported = reExportMatch[1]
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => part.split(/\s+as\s+/i)[1] ?? part.split(/\s+as\s+/i)[0]);
-
-    for (const name of exported) {
-      names.add(name.trim());
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      importSpecifiers.push(node.moduleSpecifier.text);
+      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+        for (const element of node.exportClause.elements) {
+          exportedNames.add((element.name ?? element.propertyName)?.text ?? element.name.text);
+        }
+      }
     }
-  }
 
-  return names;
+    if (ts.isFunctionDeclaration(node) && hasExportModifier(node) && node.name) {
+      exportedNames.add(node.name.text);
+    }
+
+    if (ts.isVariableStatement(node) && hasExportModifier(node)) {
+      for (const declaration of node.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          exportedNames.add(declaration.name.text);
+        }
+      }
+    }
+
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [firstArgument] = node.arguments;
+      if (firstArgument && ts.isStringLiteral(firstArgument)) {
+        importSpecifiers.push(firstArgument.text);
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+
+  return {
+    sourceFile,
+    parseErrors: parseDiagnostics.map((diagnostic: ts.Diagnostic) => flattenDiagnosticMessage(diagnostic.messageText)),
+    importSpecifiers,
+    exportedNames,
+  };
 }
 
-function extractImportSpecifiers(source: string): string[] {
-  const specifiers: string[] = [];
-  const patterns = [
-    /import\s+[^\n]*?from\s+["']([^"']+)["']/g,
-    /export\s+[^\n]*?from\s+["']([^"']+)["']/g,
-    /import\(\s*["']([^"']+)["']\s*\)/g,
-  ];
+function analyzeExtensionBootstrap(sourceFile: ts.SourceFile): ExtensionBootstrapAnalysis {
+  let hasEnsureProtocolFabricCall = false;
+  let hasRegisterProtocolNodeCall = false;
+  let hasSessionStartRegistration = false;
+  let hasSessionShutdownUnregister = false;
 
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(source))) {
-      specifiers.push(match[1]);
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const expressionName = getCallExpressionName(node.expression);
+      if (expressionName === "ensureProtocolFabric") {
+        hasEnsureProtocolFabricCall = true;
+      }
+      if (expressionName === "registerProtocolNode") {
+        hasRegisterProtocolNodeCall = true;
+      }
+
+      if (isPiEventRegistration(node, "session_start") && callbackContainsCall(node.arguments[1], "registerProtocolNode")) {
+        hasSessionStartRegistration = true;
+      }
+
+      if (
+        isPiEventRegistration(node, "session_shutdown") &&
+        callbackContainsPropertyCall(node.arguments[1], "unregisterNode")
+      ) {
+        hasSessionShutdownUnregister = true;
+      }
     }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+
+  return {
+    hasEnsureProtocolFabricCall,
+    hasRegisterProtocolNodeCall,
+    hasSessionStartRegistration,
+    hasSessionShutdownUnregister,
+  };
+}
+
+function hasExportModifier(node: ts.Node): boolean {
+  const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+  return (modifiers ?? []).some((modifier: ts.Modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+function flattenDiagnosticMessage(messageText: string | ts.DiagnosticMessageChain): string {
+  if (typeof messageText === "string") return messageText;
+  const nextMessage = messageText.next?.[0];
+  return nextMessage
+    ? `${messageText.messageText} ${flattenDiagnosticMessage(nextMessage)}`
+    : messageText.messageText;
+}
+
+function getCallExpressionName(expression: ts.Expression): string | null {
+  if (ts.isIdentifier(expression)) {
+    return expression.text;
   }
 
-  return specifiers;
+  if (ts.isPropertyAccessExpression(expression)) {
+    return expression.name.text;
+  }
+
+  return null;
+}
+
+function isPiEventRegistration(node: ts.CallExpression, eventName: string): boolean {
+  return (
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === "on" &&
+    node.arguments.length >= 2 &&
+    ts.isStringLiteral(node.arguments[0]) &&
+    node.arguments[0].text === eventName
+  );
+}
+
+function callbackContainsCall(callback: ts.Expression | undefined, callName: string): boolean {
+  if (!callback || (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback))) {
+    return false;
+  }
+
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (ts.isCallExpression(node) && getCallExpressionName(node.expression) === callName) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(callback.body);
+  return found;
+}
+
+function callbackContainsPropertyCall(callback: ts.Expression | undefined, propertyName: string): boolean {
+  if (!callback || (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback))) {
+    return false;
+  }
+
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === propertyName
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(callback.body);
+  return found;
+}
+
+function getPackageName(packageJson: unknown): string | undefined {
+  if (!packageJson || typeof packageJson !== "object" || Array.isArray(packageJson)) {
+    return undefined;
+  }
+
+  const name = (packageJson as { name?: unknown }).name;
+  return typeof name === "string" ? name : undefined;
 }
 
 function isForbiddenCertifiedNodeImport(specifier: string, ownPackageName?: string): boolean {
