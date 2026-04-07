@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "required": [
+    "templateKind",
+    "language",
+    "protocolVersion",
+    "requiredFiles",
+    "requiredDirectories",
+    "requiredRuntimeBehaviors",
+    "toolingProvides",
+    "generatedPackageDefaults",
+    "checklist",
+    "commandExamples",
+    "notes"
+  ],
+  "properties": {
+    "templateKind": { "type": "string" },
+    "language": { "type": "string" },
+    "protocolVersion": { "type": "string" },
+    "requiredFiles": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "recommendedFiles": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "requiredDirectories": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "requiredRuntimeBehaviors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "toolingProvides": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "generatedPackageDefaults": {
+      "type": "object"
+    },
+    "checklist": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "commandExamples": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

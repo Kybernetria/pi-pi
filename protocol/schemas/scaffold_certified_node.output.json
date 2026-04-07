@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "required": [
+    "packageName",
+    "nodeId",
+    "sdkDependency",
+    "useInlineSchemas",
+    "generateDebugCommands",
+    "strictTypes",
+    "filePlan",
+    "files",
+    "generatedProvides",
+    "followUpValidationChecklist",
+    "notes"
+  ],
+  "properties": {
+    "packageName": { "type": "string" },
+    "nodeId": { "type": "string" },
+    "sdkDependency": { "type": "string" },
+    "useInlineSchemas": { "type": "boolean" },
+    "generateDebugCommands": { "type": "boolean" },
+    "strictTypes": { "type": "boolean" },
+    "filePlan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "purpose"],
+        "properties": {
+          "path": { "type": "string" },
+          "purpose": { "type": "string" }
+        }
+      }
+    },
+    "files": {
+      "type": "object"
+    },
+    "generatedProvides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "handler", "schemaMode"],
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "handler": { "type": "string" },
+          "schemaMode": { "type": "string", "enum": ["inline", "file"] }
+        }
+      }
+    },
+    "followUpValidationChecklist": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

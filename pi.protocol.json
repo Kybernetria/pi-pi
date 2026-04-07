@@ -1,0 +1,48 @@
+{
+  "protocolVersion": "0.1.0",
+  "nodeId": "pi-pi",
+  "purpose": "Scaffolds and validates TypeScript-first Pi Protocol certified node packages while participating as a certified node itself.",
+  "tags": ["protocol", "generator", "validator", "typescript"],
+  "provides": [
+    {
+      "name": "describe_certified_template",
+      "description": "Describe the expected TypeScript package structure and required runtime behaviors for a certified node template.",
+      "handler": "describe_certified_template",
+      "version": "1.0.0",
+      "tags": ["template", "describe"],
+      "effects": ["file_read"],
+      "inputSchema": "./protocol/schemas/describe_certified_template.input.json",
+      "outputSchema": "./protocol/schemas/describe_certified_template.output.json"
+    },
+    {
+      "name": "scaffold_certified_node",
+      "description": "Generate a TypeScript-first protocol-certified node package template from structured input.",
+      "handler": "scaffold_certified_node",
+      "version": "1.0.0",
+      "tags": ["template", "scaffold", "generator"],
+      "effects": ["file_read"],
+      "inputSchema": "./protocol/schemas/scaffold_certified_node.input.json",
+      "outputSchema": "./protocol/schemas/scaffold_certified_node.output.json"
+    },
+    {
+      "name": "scaffold_collaborating_nodes",
+      "description": "Generate two collaborating TypeScript-first protocol-certified node packages that invoke each other through the shared fabric.",
+      "handler": "scaffold_collaborating_nodes",
+      "version": "1.0.0",
+      "tags": ["template", "collaboration", "generator"],
+      "effects": ["file_read"],
+      "inputSchema": "./protocol/schemas/scaffold_collaborating_nodes.input.json",
+      "outputSchema": "./protocol/schemas/scaffold_collaborating_nodes.output.json"
+    },
+    {
+      "name": "validate_certified_node",
+      "description": "Validate a candidate package directory against the current Pi Protocol certification rules.",
+      "handler": "validate_certified_node",
+      "version": "1.0.0",
+      "tags": ["validate", "compliance"],
+      "effects": ["file_read"],
+      "inputSchema": "./protocol/schemas/validate_certified_node.input.json",
+      "outputSchema": "./protocol/schemas/validate_certified_node.output.json"
+    }
+  ]
+}

@@ -1,0 +1,1613 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import type {
+  JSONSchemaLite,
+  ProtocolHandler,
+  PiProtocolManifest,
+} from "../vendor/pi-protocol-sdk.ts";
+
+export const PROTOCOL_VERSION = "0.1.0";
+export const SDK_DEPENDENCY = "^0.1.0";
+export const PI_CODING_AGENT_VERSION = "^0.65.2";
+export const NODE_TYPES_VERSION = "^24.5.2";
+export const TYPESCRIPT_VERSION = "^5.9.3";
+export const VALIDATION_MODE = "heuristic-source";
+
+export interface TemplateDescribeInput {
+  includeCommandExamples?: boolean;
+}
+
+export interface GeneratedPackageDefaults {
+  sdkDependency: string;
+  useInlineSchemasDefault: boolean;
+  generateDebugCommandsDefault: boolean;
+  strictTypesDefault: boolean;
+  validationMode: typeof VALIDATION_MODE;
+}
+
+export interface DescribeCertifiedTemplateOutput {
+  templateKind: "pi-protocol-certified-node";
+  language: "TypeScript";
+  protocolVersion: string;
+  requiredFiles: string[];
+  recommendedFiles: string[];
+  requiredDirectories: string[];
+  requiredRuntimeBehaviors: string[];
+  toolingProvides: string[];
+  generatedPackageDefaults: GeneratedPackageDefaults;
+  checklist: string[];
+  commandExamples: string[];
+  notes: string[];
+}
+
+export interface ScaffoldProvideInput {
+  name: string;
+  description: string;
+  version?: string;
+  tags?: string[];
+  effects?: string[];
+}
+
+export interface ScaffoldCertifiedNodeInput {
+  packageName: string;
+  nodeId: string;
+  purpose: string;
+  provides: ScaffoldProvideInput[];
+  useInlineSchemas?: boolean;
+  generateDebugCommands?: boolean;
+  packageVersion?: string;
+  sdkDependency?: string;
+  strictTypes?: boolean;
+}
+
+export interface GeneratedFilePlanEntry {
+  path: string;
+  purpose: string;
+}
+
+export interface GeneratedProvideSummary {
+  name: string;
+  version?: string;
+  handler: string;
+  schemaMode: "inline" | "file";
+}
+
+export interface ScaffoldCertifiedNodeOutput {
+  packageName: string;
+  nodeId: string;
+  sdkDependency: string;
+  useInlineSchemas: boolean;
+  generateDebugCommands: boolean;
+  strictTypes: boolean;
+  filePlan: GeneratedFilePlanEntry[];
+  files: Record<string, string>;
+  generatedProvides: GeneratedProvideSummary[];
+  followUpValidationChecklist: string[];
+  notes: string[];
+}
+
+export type CollaboratingWorkerMode = "deterministic" | "agent-backed";
+
+export interface ScaffoldCollaboratingNodesInput {
+  managerPackageName: string;
+  managerNodeId: string;
+  workerPackageName: string;
+  workerNodeId: string;
+  managerProvideName: string;
+  workerProvideName: string;
+  workerMode: CollaboratingWorkerMode;
+  generateInternalPromptFiles?: boolean;
+  generateDebugCommands?: boolean;
+  packageVersion?: string;
+  sdkDependency?: string;
+  strictTypes?: boolean;
+}
+
+export interface CollaboratingPackageOutput {
+  packageName: string;
+  nodeId: string;
+  filePlan: GeneratedFilePlanEntry[];
+  files: Record<string, string>;
+  generatedProvides: GeneratedProvideSummary[];
+}
+
+export interface ScaffoldCollaboratingNodesOutput {
+  sdkDependency: string;
+  strictTypes: boolean;
+  generateDebugCommands: boolean;
+  workerMode: CollaboratingWorkerMode;
+  generateInternalPromptFiles: boolean;
+  manager: CollaboratingPackageOutput;
+  worker: CollaboratingPackageOutput;
+  crossNodeWiringSummary: {
+    managerNodeId: string;
+    managerProvide: string;
+    workerNodeId: string;
+    workerProvide: string;
+    invokePath: "ctx.fabric.invoke()";
+    workerMode: CollaboratingWorkerMode;
+  };
+  localTestChecklist: string[];
+  notes: string[];
+}
+
+export interface ValidationRuleResult {
+  rule: string;
+  message: string;
+  suggestedFix: string;
+}
+
+export interface ValidateCertifiedNodeInput {
+  packageDir: string;
+}
+
+export interface ValidatedProvideSummary {
+  name: string;
+  handler: string;
+  visibility: string;
+}
+
+export interface ValidateCertifiedNodeOutput {
+  packageDir: string;
+  pass: boolean;
+  validationMode: typeof VALIDATION_MODE;
+  violatedRules: ValidationRuleResult[];
+  suggestedFixes: string[];
+  normalizedSummary: {
+    packageName: string | null;
+    nodeId: string | null;
+    protocolVersion: string | null;
+    provides: ValidatedProvideSummary[];
+  };
+  detectedRelevantFiles: string[];
+}
+
+const CERTIFICATION_CHECKLIST = [
+  "package.json#pi declares the package as a Pi package",
+  "pi.protocol.json exists and matches the package handlers",
+  "extensions/index.ts bootstraps the shared fabric on session_start",
+  "session_shutdown unregisters the node",
+  "every public provide has input and output schemas",
+  "cross-node calls use fabric.invoke()",
+  "the package avoids forbidden direct sibling certified-node imports",
+  "the package remains TypeScript-first and installable on its own",
+];
+
+const REQUIRED_FILES = [
+  "package.json",
+  "pi.protocol.json",
+  "extensions/index.ts",
+  "protocol/handlers.ts",
+];
+
+const RECOMMENDED_FILES = ["README.md", "tsconfig.json"];
+
+export async function describeCertifiedTemplate(
+  input: TemplateDescribeInput = {},
+): Promise<DescribeCertifiedTemplateOutput> {
+  return {
+    templateKind: "pi-protocol-certified-node",
+    language: "TypeScript",
+    protocolVersion: PROTOCOL_VERSION,
+    requiredFiles: REQUIRED_FILES,
+    recommendedFiles: RECOMMENDED_FILES,
+    requiredDirectories: ["extensions", "protocol", "protocol/schemas"],
+    requiredRuntimeBehaviors: [
+      "call ensureProtocolFabric(pi) during extension activation",
+      "register with the shared fabric on session_start",
+      "unregister from the shared fabric on session_shutdown",
+      "use fabric.invoke() for cross-node calls",
+      "ship pi.protocol.json as the canonical protocol contract",
+    ],
+    toolingProvides: [
+      "describe_certified_template",
+      "scaffold_certified_node",
+      "scaffold_collaborating_nodes",
+      "validate_certified_node",
+    ],
+    generatedPackageDefaults: {
+      sdkDependency: `@kyvernitria/pi-protocol-sdk@${SDK_DEPENDENCY}`,
+      useInlineSchemasDefault: false,
+      generateDebugCommandsDefault: false,
+      strictTypesDefault: true,
+      validationMode: VALIDATION_MODE,
+    },
+    checklist: CERTIFICATION_CHECKLIST,
+    commandExamples: input.includeCommandExamples
+      ? [
+          "/pi-pi-template",
+          '/pi-pi-new {"packageName":"pi-hello","nodeId":"pi-hello","purpose":"Greets users","provides":[{"name":"say_hello","description":"Return a greeting."}]}',
+          '/pi-pi-new-pair {"managerPackageName":"pi-manager","managerNodeId":"pi-manager","workerPackageName":"pi-worker","workerNodeId":"pi-worker","managerProvideName":"delegate_task","workerProvideName":"do_task","workerMode":"deterministic"}',
+          "/pi-pi-validate ./packages/pi-hello",
+        ]
+      : [],
+    notes: [
+      "scaffold_certified_node is a pure generation provide that returns a file plan and file contents.",
+      "scaffold_collaborating_nodes is a pure generation provide that returns two package plans and their file contents.",
+      "Agent-backed worker mode is currently an agent-backed-ready scaffold pattern, not a fully realized embedded Pi agent runtime.",
+      "/pi-pi-new and /pi-pi-new-pair are Pi command projections that may optionally write generated files to disk.",
+      `validate_certified_node currently uses ${VALIDATION_MODE} checks rather than full AST or semantic validation.`,
+    ],
+  };
+}
+
+export async function scaffoldCertifiedNode(
+  input: ScaffoldCertifiedNodeInput,
+): Promise<ScaffoldCertifiedNodeOutput> {
+  validateScaffoldInput(input);
+
+  const packageVersion = input.packageVersion?.trim() || "0.1.0";
+  const sdkDependency = input.sdkDependency?.trim() || SDK_DEPENDENCY;
+  const useInlineSchemas = input.useInlineSchemas ?? false;
+  const generateDebugCommands = input.generateDebugCommands ?? false;
+  const strictTypes = input.strictTypes ?? true;
+  const manifestProvides = input.provides.map((provide) => {
+    const schemas = createStarterSchemas(provide);
+    return {
+      name: provide.name,
+      description: provide.description,
+      handler: provide.name,
+      version: provide.version ?? "1.0.0",
+      tags: provide.tags,
+      effects: provide.effects,
+      inputSchema: useInlineSchemas
+        ? schemas.inputSchema
+        : `./protocol/schemas/${provide.name}.input.json`,
+      outputSchema: useInlineSchemas
+        ? schemas.outputSchema
+        : `./protocol/schemas/${provide.name}.output.json`,
+    };
+  });
+
+  const manifest: PiProtocolManifest = {
+    protocolVersion: PROTOCOL_VERSION,
+    nodeId: input.nodeId,
+    purpose: input.purpose,
+    provides: manifestProvides,
+  };
+
+  const files: Record<string, string> = {
+    "package.json": renderJson({
+      name: input.packageName,
+      version: packageVersion,
+      type: "module",
+      keywords: ["pi-package", "pi-protocol"],
+      dependencies: {
+        "@kyvernitria/pi-protocol-sdk": sdkDependency,
+      },
+      peerDependencies: {
+        "@mariozechner/pi-coding-agent": "*",
+      },
+      devDependencies: {
+        "@mariozechner/pi-coding-agent": PI_CODING_AGENT_VERSION,
+        "@types/node": NODE_TYPES_VERSION,
+        "typescript": TYPESCRIPT_VERSION,
+      },
+      pi: {
+        extensions: ["./extensions"],
+      },
+    }),
+    "pi.protocol.json": renderJson(manifest),
+    "tsconfig.json": renderJson({
+      compilerOptions: {
+        target: "ES2022",
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        resolveJsonModule: true,
+        allowImportingTsExtensions: true,
+        verbatimModuleSyntax: true,
+        types: ["node"],
+        strict: strictTypes,
+        skipLibCheck: true,
+      },
+      include: ["extensions/**/*.ts", "protocol/**/*.ts"],
+    }),
+    "extensions/index.ts": renderExtensionFile({
+      packageName: input.packageName,
+      packageVersion,
+      nodeId: input.nodeId,
+      generateDebugCommands,
+    }),
+    "protocol/handlers.ts": renderHandlersFile(input.nodeId, input.provides),
+    "README.md": renderReadme(input, useInlineSchemas, generateDebugCommands, sdkDependency, strictTypes),
+  };
+
+  if (!useInlineSchemas) {
+    for (const provide of input.provides) {
+      const schemas = createStarterSchemas(provide);
+      files[`protocol/schemas/${provide.name}.input.json`] = renderJson(schemas.inputSchema);
+      files[`protocol/schemas/${provide.name}.output.json`] = renderJson(schemas.outputSchema);
+    }
+  }
+
+  return {
+    packageName: input.packageName,
+    nodeId: input.nodeId,
+    sdkDependency,
+    useInlineSchemas,
+    generateDebugCommands,
+    strictTypes,
+    filePlan: Object.keys(files)
+      .sort()
+      .map((filePath) => ({
+        path: filePath,
+        purpose: describeGeneratedFile(filePath),
+      })),
+    files,
+    generatedProvides: manifestProvides.map((provide) => ({
+      name: provide.name,
+      version: provide.version,
+      handler: provide.handler,
+      schemaMode: useInlineSchemas ? "inline" : "file",
+    })),
+    followUpValidationChecklist: CERTIFICATION_CHECKLIST,
+    notes: [
+      "This provide returns generated files without writing them to disk.",
+      "Use a Pi command projection such as /pi-pi-new if you want operator-driven file writing.",
+      `The generated package stamps @kyvernitria/pi-protocol-sdk@${sdkDependency}. Override sdkDependency for local development if needed.`,
+    ],
+  };
+}
+
+export async function scaffoldCollaboratingNodes(
+  input: ScaffoldCollaboratingNodesInput,
+): Promise<ScaffoldCollaboratingNodesOutput> {
+  validateCollaboratingNodesInput(input);
+
+  const packageVersion = input.packageVersion?.trim() || "0.1.0";
+  const sdkDependency = input.sdkDependency?.trim() || SDK_DEPENDENCY;
+  const strictTypes = input.strictTypes ?? true;
+  const generateDebugCommands = input.generateDebugCommands ?? false;
+  const generateInternalPromptFiles = input.generateInternalPromptFiles ?? input.workerMode === "agent-backed";
+
+  const managerSchemas = createManagerProvideSchemas(input.workerNodeId, input.workerProvideName, input.workerMode);
+  const workerSchemas = createWorkerProvideSchemas(input.workerMode, generateInternalPromptFiles);
+
+  const managerManifest: PiProtocolManifest = {
+    protocolVersion: PROTOCOL_VERSION,
+    nodeId: input.managerNodeId,
+    purpose: `Coordinates work and delegates ${input.workerProvideName} to ${input.workerNodeId} through the protocol fabric.`,
+    provides: [
+      {
+        name: input.managerProvideName,
+        description: `Delegate structured work to ${input.workerNodeId}.${input.workerProvideName} through fabric.invoke().`,
+        handler: input.managerProvideName,
+        version: "1.0.0",
+        tags: ["manager", "delegation", "protocol"],
+        effects: undefined,
+        inputSchema: `./protocol/schemas/${input.managerProvideName}.input.json`,
+        outputSchema: `./protocol/schemas/${input.managerProvideName}.output.json`,
+      },
+    ],
+  };
+
+  const workerManifest: PiProtocolManifest = {
+    protocolVersion: PROTOCOL_VERSION,
+    nodeId: input.workerNodeId,
+    purpose:
+      input.workerMode === "deterministic"
+        ? `Executes ${input.workerProvideName} deterministically for collaborating protocol nodes.`
+        : `Executes ${input.workerProvideName} with an agent-backed-ready internal pattern while preserving a typed protocol surface.`,
+    provides: [
+      {
+        name: input.workerProvideName,
+        description:
+          input.workerMode === "deterministic"
+            ? "Perform a deterministic worker task and return structured output."
+            : "Perform a worker task using an internal agent-backed-ready pattern and return structured output.",
+        handler: input.workerProvideName,
+        version: "1.0.0",
+        tags: ["worker", input.workerMode, "protocol"],
+        effects:
+          input.workerMode === "deterministic"
+            ? undefined
+            : generateInternalPromptFiles
+              ? ["llm_call", "file_read"]
+              : ["llm_call"],
+        inputSchema: `./protocol/schemas/${input.workerProvideName}.input.json`,
+        outputSchema: `./protocol/schemas/${input.workerProvideName}.output.json`,
+      },
+    ],
+  };
+
+  const managerFiles = createCollaboratingPackageFiles({
+    packageName: input.managerPackageName,
+    nodeId: input.managerNodeId,
+    packageVersion,
+    sdkDependency,
+    strictTypes,
+    generateDebugCommands,
+    manifest: managerManifest,
+    handlersFile: renderManagerHandlersFile(input),
+    readme: renderCollaboratingReadme({
+      packageName: input.managerPackageName,
+      nodeId: input.managerNodeId,
+      purpose: managerManifest.purpose,
+      sdkDependency,
+      strictTypes,
+      generateDebugCommands,
+      collaborationRole: "manager",
+      workerMode: input.workerMode,
+      notes: [
+        `This node delegates ${input.managerProvideName} to ${input.workerNodeId}.${input.workerProvideName} through ctx.fabric.invoke().`,
+        "It never imports the worker node directly.",
+      ],
+    }),
+    schemas: {
+      [`protocol/schemas/${input.managerProvideName}.input.json`]: managerSchemas.inputSchema,
+      [`protocol/schemas/${input.managerProvideName}.output.json`]: managerSchemas.outputSchema,
+    },
+  });
+
+  const workerExtraFiles: Record<string, string> = {};
+  if (input.workerMode === "agent-backed" && generateInternalPromptFiles) {
+    workerExtraFiles[`protocol/prompts/${input.workerProvideName}.md`] = renderWorkerInternalPrompt(input);
+  }
+
+  const workerFiles = createCollaboratingPackageFiles({
+    packageName: input.workerPackageName,
+    nodeId: input.workerNodeId,
+    packageVersion,
+    sdkDependency,
+    strictTypes,
+    generateDebugCommands,
+    manifest: workerManifest,
+    handlersFile: renderWorkerHandlersFile(input, generateInternalPromptFiles),
+    readme: renderCollaboratingReadme({
+      packageName: input.workerPackageName,
+      nodeId: input.workerNodeId,
+      purpose: workerManifest.purpose,
+      sdkDependency,
+      strictTypes,
+      generateDebugCommands,
+      collaborationRole: "worker",
+      workerMode: input.workerMode,
+      notes: [
+        input.workerMode === "deterministic"
+          ? "This worker returns a schema-valid deterministic response."
+          : "This worker demonstrates an agent-backed-ready internal pattern while keeping the external provide typed.",
+        generateInternalPromptFiles
+          ? `Internal prompt file generated at protocol/prompts/${input.workerProvideName}.md and intentionally not exposed as a public skill.`
+          : "No internal prompt file was generated.",
+      ],
+    }),
+    schemas: {
+      [`protocol/schemas/${input.workerProvideName}.input.json`]: workerSchemas.inputSchema,
+      [`protocol/schemas/${input.workerProvideName}.output.json`]: workerSchemas.outputSchema,
+    },
+    extraFiles: workerExtraFiles,
+  });
+
+  return {
+    sdkDependency,
+    strictTypes,
+    generateDebugCommands,
+    workerMode: input.workerMode,
+    generateInternalPromptFiles,
+    manager: {
+      packageName: input.managerPackageName,
+      nodeId: input.managerNodeId,
+      filePlan: Object.keys(managerFiles)
+        .sort()
+        .map((filePath) => ({ path: filePath, purpose: describeGeneratedFile(filePath) })),
+      files: managerFiles,
+      generatedProvides: [
+        {
+          name: input.managerProvideName,
+          version: "1.0.0",
+          handler: input.managerProvideName,
+          schemaMode: "file",
+        },
+      ],
+    },
+    worker: {
+      packageName: input.workerPackageName,
+      nodeId: input.workerNodeId,
+      filePlan: Object.keys(workerFiles)
+        .sort()
+        .map((filePath) => ({ path: filePath, purpose: describeGeneratedFile(filePath) })),
+      files: workerFiles,
+      generatedProvides: [
+        {
+          name: input.workerProvideName,
+          version: "1.0.0",
+          handler: input.workerProvideName,
+          schemaMode: "file",
+        },
+      ],
+    },
+    crossNodeWiringSummary: {
+      managerNodeId: input.managerNodeId,
+      managerProvide: input.managerProvideName,
+      workerNodeId: input.workerNodeId,
+      workerProvide: input.workerProvideName,
+      invokePath: "ctx.fabric.invoke()",
+      workerMode: input.workerMode,
+    },
+    localTestChecklist: [
+      `Install both ${input.managerPackageName} and ${input.workerPackageName} into the same Pi process.`,
+      "Start Pi and confirm both nodes register into the shared fabric.",
+      `Invoke ${input.managerNodeId}.${input.managerProvideName} and confirm it calls ${input.workerNodeId}.${input.workerProvideName} through fabric.invoke().`,
+      "Verify there are no direct sibling imports between the generated packages.",
+      generateInternalPromptFiles
+        ? `Confirm protocol/prompts/${input.workerProvideName}.md exists only inside the worker package and is not exposed as a public skill.`
+        : "No internal prompt files should exist in the worker package.",
+    ],
+    notes: [
+      "Both generated packages are independently installable Pi packages.",
+      "The manager invokes the worker through a typed provide rather than agent-to-agent chat.",
+      "The worker may implement its provide deterministically or with an internal agent-backed-ready pattern while keeping the same protocol contract.",
+    ],
+  };
+}
+
+export async function validateCertifiedNode(
+  input: ValidateCertifiedNodeInput,
+): Promise<ValidateCertifiedNodeOutput> {
+  if (!input || typeof input !== "object" || !input.packageDir?.trim()) {
+    throw protocolError("INVALID_INPUT", "validate_certified_node requires a non-empty packageDir");
+  }
+
+  const packageDir = path.resolve(input.packageDir);
+  const violations: ValidationRuleResult[] = [];
+  const detectedRelevantFiles: string[] = [];
+
+  const packageJsonPath = path.join(packageDir, "package.json");
+  const manifestPath = path.join(packageDir, "pi.protocol.json");
+  const extensionTsPath = path.join(packageDir, "extensions", "index.ts");
+  const extensionJsPath = path.join(packageDir, "extensions", "index.js");
+  const handlersTsPath = path.join(packageDir, "protocol", "handlers.ts");
+  const handlersJsPath = path.join(packageDir, "protocol", "handlers.js");
+
+  const packageJsonExists = await exists(packageJsonPath);
+  const manifestExists = await exists(manifestPath);
+  const extensionPath = (await exists(extensionTsPath)) ? extensionTsPath : extensionJsPath;
+  const handlersPath = (await exists(handlersTsPath)) ? handlersTsPath : handlersJsPath;
+
+  for (const requiredFile of REQUIRED_FILES) {
+    const resolved = path.join(packageDir, requiredFile);
+    if (await exists(resolved)) {
+      detectedRelevantFiles.push(requiredFile);
+    }
+  }
+
+  if (!packageJsonExists) {
+    violations.push({
+      rule: "required-file.package-json",
+      message: "Missing package.json",
+      suggestedFix: "Add a package.json file with native Pi metadata under package.json#pi.",
+    });
+  }
+
+  if (!manifestExists) {
+    violations.push({
+      rule: "required-file.pi-protocol-json",
+      message: "Missing pi.protocol.json",
+      suggestedFix: "Add a root pi.protocol.json sidecar manifest.",
+    });
+  }
+
+  if (!(await exists(extensionPath))) {
+    violations.push({
+      rule: "required-file.extension",
+      message: "Missing extensions/index.ts or extensions/index.js",
+      suggestedFix: "Add the standard bootstrap extension entrypoint under extensions/index.ts.",
+    });
+  }
+
+  if (!(await exists(handlersPath))) {
+    violations.push({
+      rule: "required-file.handlers",
+      message: "Missing protocol/handlers.ts or protocol/handlers.js",
+      suggestedFix: "Add local protocol handlers under protocol/handlers.ts.",
+    });
+  }
+
+  let packageJson: any = null;
+  if (packageJsonExists) {
+    try {
+      packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
+    } catch {
+      violations.push({
+        rule: "package-json.parse",
+        message: "package.json is not valid JSON",
+        suggestedFix: "Fix package.json so it parses as valid JSON.",
+      });
+    }
+  }
+
+  let manifest: PiProtocolManifest | null = null;
+  if (manifestExists) {
+    try {
+      manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    } catch {
+      violations.push({
+        rule: "manifest.parse",
+        message: "pi.protocol.json is not valid JSON",
+        suggestedFix: "Fix pi.protocol.json so it parses as valid JSON.",
+      });
+    }
+  }
+
+  if (packageJson) {
+    if (!packageJson.pi || !Array.isArray(packageJson.pi.extensions) || packageJson.pi.extensions.length === 0) {
+      violations.push({
+        rule: "package-json.pi",
+        message: "package.json#pi.extensions is missing or empty",
+        suggestedFix: "Declare the extension directory in package.json#pi.extensions.",
+      });
+    }
+
+    for (const violation of findLocalDependencyViolations(packageJson)) {
+      violations.push(violation);
+    }
+  }
+
+  let exportedHandlerNames = new Set<string>();
+  let handlersSource = "";
+  if (await exists(handlersPath)) {
+    handlersSource = await fs.readFile(handlersPath, "utf8");
+    exportedHandlerNames = extractExportedHandlerNames(handlersSource);
+  }
+
+  let extensionSource = "";
+  if (await exists(extensionPath)) {
+    extensionSource = await fs.readFile(extensionPath, "utf8");
+  }
+
+  if (manifest) {
+    if (manifest.protocolVersion !== PROTOCOL_VERSION) {
+      violations.push({
+        rule: "manifest.protocol-version",
+        message: `Unsupported protocolVersion ${String(manifest.protocolVersion)}`,
+        suggestedFix: `Set protocolVersion to ${PROTOCOL_VERSION}.`,
+      });
+    }
+
+    if (!manifest.nodeId || typeof manifest.nodeId !== "string") {
+      violations.push({
+        rule: "manifest.node-id",
+        message: "Manifest nodeId is missing or empty",
+        suggestedFix: "Provide a stable non-empty nodeId in pi.protocol.json.",
+      });
+    }
+
+    if (!manifest.purpose || typeof manifest.purpose !== "string") {
+      violations.push({
+        rule: "manifest.purpose",
+        message: "Manifest purpose is missing or empty",
+        suggestedFix: "Provide a concise non-empty purpose in pi.protocol.json.",
+      });
+    }
+
+    const seenProvides = new Set<string>();
+    for (const provide of manifest.provides ?? []) {
+      if (!provide.name) {
+        violations.push({
+          rule: "provide.name",
+          message: "A provide is missing its name",
+          suggestedFix: "Give every provide a non-empty local name.",
+        });
+        continue;
+      }
+
+      if (seenProvides.has(provide.name)) {
+        violations.push({
+          rule: "provide.duplicate",
+          message: `Duplicate provide name ${provide.name}`,
+          suggestedFix: "Use unique local provide names within one node.",
+        });
+      }
+      seenProvides.add(provide.name);
+
+      if (!provide.description) {
+        violations.push({
+          rule: `provide.description.${provide.name}`,
+          message: `Provide ${provide.name} is missing a description`,
+          suggestedFix: "Add a human-readable description for each provide.",
+        });
+      }
+
+      if (!provide.handler) {
+        violations.push({
+          rule: `provide.handler.${provide.name}`,
+          message: `Provide ${provide.name} is missing a handler reference`,
+          suggestedFix: "Set the handler field to a local exported handler name.",
+        });
+      } else if (!exportedHandlerNames.has(provide.handler)) {
+        violations.push({
+          rule: `provide.handler-missing.${provide.name}`,
+          message: `Handler ${provide.handler} was not found in protocol/handlers`,
+          suggestedFix: `Export ${provide.handler} from protocol/handlers.ts or update the manifest handler reference.`,
+        });
+      }
+
+      for (const [schemaLabel, schemaValue] of [
+        ["inputSchema", provide.inputSchema],
+        ["outputSchema", provide.outputSchema],
+      ] as const) {
+        if (!schemaValue) {
+          violations.push({
+            rule: `${provide.name}.${schemaLabel}`,
+            message: `Provide ${provide.name} is missing ${schemaLabel}`,
+            suggestedFix: `Add ${schemaLabel} for ${provide.name}.`,
+          });
+          continue;
+        }
+
+        if (typeof schemaValue === "string") {
+          const schemaPath = path.resolve(packageDir, schemaValue);
+          if (!(await exists(schemaPath))) {
+            violations.push({
+              rule: `${provide.name}.${schemaLabel}.path`,
+              message: `${schemaLabel} path ${schemaValue} does not exist`,
+              suggestedFix: `Create ${schemaValue} or replace it with an inline schema object.`,
+            });
+          }
+        } else if (typeof schemaValue !== "object") {
+          violations.push({
+            rule: `${provide.name}.${schemaLabel}.shape`,
+            message: `${schemaLabel} for ${provide.name} must be a schema object or relative path string`,
+            suggestedFix: `Use a JSON schema object or a relative schema file path for ${schemaLabel}.`,
+          });
+        }
+      }
+    }
+  }
+
+  if (extensionSource) {
+    if (!extensionSource.includes("ensureProtocolFabric")) {
+      violations.push({
+        rule: "bootstrap.ensure-fabric",
+        message: "Extension bootstrap does not call ensureProtocolFabric",
+        suggestedFix: "Call ensureProtocolFabric(pi) during activation.",
+      });
+    }
+
+    if (!extensionSource.includes("registerProtocolNode")) {
+      violations.push({
+        rule: "bootstrap.register-node",
+        message: "Extension bootstrap does not call registerProtocolNode",
+        suggestedFix: "Register the node during session_start using registerProtocolNode(...).",
+      });
+    }
+
+    if (!extensionSource.includes("session_start")) {
+      violations.push({
+        rule: "bootstrap.session-start",
+        message: "Extension bootstrap does not register on session_start",
+        suggestedFix: "Move registration into a session_start handler.",
+      });
+    }
+
+    if (!extensionSource.includes("session_shutdown")) {
+      violations.push({
+        rule: "bootstrap.session-shutdown",
+        message: "Extension bootstrap does not unregister on session_shutdown",
+        suggestedFix: "Unregister the node in a session_shutdown handler.",
+      });
+    }
+  }
+
+  const sourceFiles = await collectSourceFiles(packageDir);
+  for (const filePath of sourceFiles) {
+    const source = await fs.readFile(filePath, "utf8");
+    for (const specifier of extractImportSpecifiers(source)) {
+      if (isForbiddenCertifiedNodeImport(specifier, packageJson?.name)) {
+        violations.push({
+          rule: "imports.forbidden-certified-node",
+          message: `Forbidden certified-node import detected in ${path.relative(packageDir, filePath)}: ${specifier}`,
+          suggestedFix: "Remove direct sibling node imports and use fabric.invoke() for cross-node calls.",
+        });
+      }
+    }
+  }
+
+  const provides = manifest?.provides?.map((provide) => ({
+    name: provide.name,
+    handler: provide.handler,
+    visibility: provide.visibility ?? "public",
+  })) ?? [];
+
+  return {
+    packageDir,
+    pass: violations.length === 0,
+    violatedRules: violations,
+    suggestedFixes: violations.map((violation) => violation.suggestedFix),
+    normalizedSummary: {
+      packageName: packageJson?.name ?? null,
+      nodeId: manifest?.nodeId ?? null,
+      protocolVersion: manifest?.protocolVersion ?? null,
+      provides,
+    },
+    validationMode: VALIDATION_MODE,
+    detectedRelevantFiles: dedupe([
+      ...detectedRelevantFiles,
+      ...sourceFiles.map((filePath) => path.relative(packageDir, filePath)),
+    ]).sort(),
+  };
+}
+
+export const describe_certified_template: ProtocolHandler = async (_ctx, input) =>
+  describeCertifiedTemplate((input ?? {}) as TemplateDescribeInput);
+
+export const scaffold_certified_node: ProtocolHandler = async (_ctx, input) =>
+  scaffoldCertifiedNode(input as ScaffoldCertifiedNodeInput);
+
+export const scaffold_collaborating_nodes: ProtocolHandler = async (_ctx, input) =>
+  scaffoldCollaboratingNodes(input as ScaffoldCollaboratingNodesInput);
+
+export const validate_certified_node: ProtocolHandler = async (_ctx, input) =>
+  validateCertifiedNode(input as ValidateCertifiedNodeInput);
+
+function validateScaffoldInput(input: ScaffoldCertifiedNodeInput): void {
+  if (!input || typeof input !== "object") {
+    throw protocolError("INVALID_INPUT", "scaffold_certified_node requires an input object");
+  }
+
+  if (!input.packageName?.trim()) {
+    throw protocolError("INVALID_INPUT", "packageName is required");
+  }
+
+  if (!input.nodeId?.trim()) {
+    throw protocolError("INVALID_INPUT", "nodeId is required");
+  }
+
+  if (!/^[a-z][a-z0-9-]*$/.test(input.packageName)) {
+    throw protocolError(
+      "INVALID_INPUT",
+      "packageName must match /^[a-z][a-z0-9-]*$/ for the starter template",
+    );
+  }
+
+  if (!/^[a-z][a-z0-9-]*$/.test(input.nodeId)) {
+    throw protocolError(
+      "INVALID_INPUT",
+      "nodeId must match /^[a-z][a-z0-9-]*$/ for the starter template",
+    );
+  }
+
+  if (!input.purpose?.trim()) {
+    throw protocolError("INVALID_INPUT", "purpose is required");
+  }
+
+  if (input.sdkDependency !== undefined && !input.sdkDependency.trim()) {
+    throw protocolError("INVALID_INPUT", "sdkDependency must be a non-empty string when provided");
+  }
+
+  if (input.strictTypes !== undefined && typeof input.strictTypes !== "boolean") {
+    throw protocolError("INVALID_INPUT", "strictTypes must be boolean when provided");
+  }
+
+  if (!Array.isArray(input.provides) || input.provides.length === 0) {
+    throw protocolError("INVALID_INPUT", "provides must be a non-empty array");
+  }
+
+  const seen = new Set<string>();
+  for (const provide of input.provides) {
+    if (!provide?.name || !provide?.description) {
+      throw protocolError("INVALID_INPUT", "each provide requires name and description");
+    }
+
+    if (!/^[a-z][a-z0-9_]*$/.test(provide.name)) {
+      throw protocolError(
+        "INVALID_INPUT",
+        `provide name ${provide.name} must match /^[a-z][a-z0-9_]*$/ so it is a valid handler export`,
+      );
+    }
+
+    if (seen.has(provide.name)) {
+      throw protocolError("INVALID_INPUT", `duplicate provide name ${provide.name}`);
+    }
+    seen.add(provide.name);
+  }
+}
+
+function validateCollaboratingNodesInput(input: ScaffoldCollaboratingNodesInput): void {
+  if (!input || typeof input !== "object") {
+    throw protocolError("INVALID_INPUT", "scaffold_collaborating_nodes requires an input object");
+  }
+
+  const packageFields = [
+    ["managerPackageName", input.managerPackageName],
+    ["managerNodeId", input.managerNodeId],
+    ["workerPackageName", input.workerPackageName],
+    ["workerNodeId", input.workerNodeId],
+  ] as const;
+
+  for (const [label, value] of packageFields) {
+    if (!value?.trim()) {
+      throw protocolError("INVALID_INPUT", `${label} is required`);
+    }
+
+    if (!/^[a-z][a-z0-9-]*$/.test(value)) {
+      throw protocolError("INVALID_INPUT", `${label} must match /^[a-z][a-z0-9-]*$/`);
+    }
+  }
+
+  const provideFields = [
+    ["managerProvideName", input.managerProvideName],
+    ["workerProvideName", input.workerProvideName],
+  ] as const;
+
+  for (const [label, value] of provideFields) {
+    if (!value?.trim()) {
+      throw protocolError("INVALID_INPUT", `${label} is required`);
+    }
+
+    if (!/^[a-z][a-z0-9_]*$/.test(value)) {
+      throw protocolError("INVALID_INPUT", `${label} must match /^[a-z][a-z0-9_]*$/`);
+    }
+  }
+
+  if (input.workerMode !== "deterministic" && input.workerMode !== "agent-backed") {
+    throw protocolError("INVALID_INPUT", "workerMode must be 'deterministic' or 'agent-backed'");
+  }
+
+  if (input.sdkDependency !== undefined && !input.sdkDependency.trim()) {
+    throw protocolError("INVALID_INPUT", "sdkDependency must be a non-empty string when provided");
+  }
+
+  if (input.strictTypes !== undefined && typeof input.strictTypes !== "boolean") {
+    throw protocolError("INVALID_INPUT", "strictTypes must be boolean when provided");
+  }
+
+  if (
+    input.generateInternalPromptFiles !== undefined &&
+    typeof input.generateInternalPromptFiles !== "boolean"
+  ) {
+    throw protocolError("INVALID_INPUT", "generateInternalPromptFiles must be boolean when provided");
+  }
+}
+
+function createStarterSchemas(provide: ScaffoldProvideInput): {
+  inputSchema: JSONSchemaLite;
+  outputSchema: JSONSchemaLite;
+} {
+  return {
+    inputSchema: {
+      type: "object",
+      properties: {
+        note: {
+          type: "string",
+          description: `Optional starter input for ${provide.name}`,
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      required: ["status", "provide", "nodeId"],
+      properties: {
+        status: {
+          type: "string",
+          enum: ["todo"],
+          description: "Starter status returned by the scaffolded handler.",
+        },
+        provide: {
+          type: "string",
+          description: "The provide that produced the response.",
+        },
+        nodeId: {
+          type: "string",
+          description: "The current callee nodeId.",
+        },
+        receivedNote: {
+          type: "string",
+          description: "Optional note echoed from the input.",
+        },
+      },
+    },
+  };
+}
+
+function createManagerProvideSchemas(
+  workerNodeId: string,
+  workerProvideName: string,
+  workerMode: CollaboratingWorkerMode,
+): { inputSchema: JSONSchemaLite; outputSchema: JSONSchemaLite } {
+  return {
+    inputSchema: {
+      type: "object",
+      required: ["task"],
+      properties: {
+        task: { type: "string", description: "Task to delegate to the worker node." },
+        note: { type: "string", description: "Optional structured note for the worker." },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      required: ["status", "managerNodeId", "workerNodeId", "workerProvide", "workerMode", "workerResult"],
+      properties: {
+        status: { type: "string", enum: ["delegated"] },
+        managerNodeId: { type: "string" },
+        workerNodeId: { type: "string", enum: [workerNodeId] },
+        workerProvide: { type: "string", enum: [workerProvideName] },
+        workerMode: { type: "string", enum: [workerMode] },
+        workerResult: {
+          type: "object",
+          required: ["status", "workerNodeId", "workerMode", "result"],
+          properties: {
+            status: { type: "string", enum: ["completed"] },
+            workerNodeId: { type: "string", enum: [workerNodeId] },
+            workerMode: { type: "string", enum: [workerMode] },
+            result: { type: "string" },
+            promptUsed: { type: "boolean" },
+            promptPath: { type: "string" },
+          },
+        },
+      },
+    },
+  };
+}
+
+function createWorkerProvideSchemas(
+  workerMode: CollaboratingWorkerMode,
+  generateInternalPromptFiles: boolean,
+): { inputSchema: JSONSchemaLite; outputSchema: JSONSchemaLite } {
+  return {
+    inputSchema: {
+      type: "object",
+      required: ["task"],
+      properties: {
+        task: { type: "string", description: "Task for the worker to perform." },
+        note: { type: "string", description: "Optional manager-supplied note." },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      required: ["status", "workerNodeId", "workerMode", "result"],
+      properties: {
+        status: { type: "string", enum: ["completed"] },
+        workerNodeId: { type: "string" },
+        workerMode: { type: "string", enum: [workerMode] },
+        result: { type: "string" },
+        promptUsed: { type: "boolean", enum: generateInternalPromptFiles ? [true, false] : [false] },
+        promptPath: { type: "string" },
+      },
+    },
+  };
+}
+
+function createCollaboratingPackageFiles(options: {
+  packageName: string;
+  nodeId: string;
+  packageVersion: string;
+  sdkDependency: string;
+  strictTypes: boolean;
+  generateDebugCommands: boolean;
+  manifest: PiProtocolManifest;
+  handlersFile: string;
+  readme: string;
+  schemas: Record<string, JSONSchemaLite>;
+  extraFiles?: Record<string, string>;
+}): Record<string, string> {
+  const files: Record<string, string> = {
+    "package.json": renderJson({
+      name: options.packageName,
+      version: options.packageVersion,
+      type: "module",
+      keywords: ["pi-package", "pi-protocol"],
+      dependencies: {
+        "@kyvernitria/pi-protocol-sdk": options.sdkDependency,
+      },
+      peerDependencies: {
+        "@mariozechner/pi-coding-agent": "*",
+      },
+      devDependencies: {
+        "@mariozechner/pi-coding-agent": PI_CODING_AGENT_VERSION,
+        "@types/node": NODE_TYPES_VERSION,
+        "typescript": TYPESCRIPT_VERSION,
+      },
+      pi: {
+        extensions: ["./extensions"],
+      },
+    }),
+    "pi.protocol.json": renderJson(options.manifest),
+    "tsconfig.json": renderJson({
+      compilerOptions: {
+        target: "ES2022",
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        resolveJsonModule: true,
+        allowImportingTsExtensions: true,
+        verbatimModuleSyntax: true,
+        types: ["node"],
+        strict: options.strictTypes,
+        skipLibCheck: true,
+      },
+      include: ["extensions/**/*.ts", "protocol/**/*.ts"],
+    }),
+    "extensions/index.ts": renderExtensionFile({
+      packageName: options.packageName,
+      packageVersion: options.packageVersion,
+      nodeId: options.nodeId,
+      generateDebugCommands: options.generateDebugCommands,
+    }),
+    "protocol/handlers.ts": options.handlersFile,
+    "README.md": options.readme,
+  };
+
+  for (const [schemaPath, schema] of Object.entries(options.schemas)) {
+    files[schemaPath] = renderJson(schema);
+  }
+
+  for (const [extraPath, content] of Object.entries(options.extraFiles ?? {})) {
+    files[extraPath] = content;
+  }
+
+  return files;
+}
+
+function renderExtensionFile(options: {
+  packageName: string;
+  packageVersion: string;
+  nodeId: string;
+  generateDebugCommands: boolean;
+}): string {
+  const debugBlock = options.generateDebugCommands
+    ? `\n\ninterface CommandContext {\n  ui: {\n    notify: (message: string, level?: "info" | "error") => void;\n  };\n}\n`
+    : "";
+
+  const debugCommand = options.generateDebugCommands
+    ? `\n  pi.registerCommand?.("${commandBase(options.packageName)}-registry", {\n    description: "Show the current protocol registry snapshot",\n    handler: async (_args: string, ctx: CommandContext) => {\n      ctx.ui.notify(JSON.stringify(fabric.getRegistry(), null, 2), "info");\n    },\n  });`
+    : "";
+
+  return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { ensureProtocolFabric, registerProtocolNode } from "@kyvernitria/pi-protocol-sdk";
+import manifest from "../pi.protocol.json" with { type: "json" };
+import * as handlers from "../protocol/handlers.ts";${debugBlock}
+export default function activate(pi: ExtensionAPI) {
+  const fabric = ensureProtocolFabric(pi);
+
+  pi.on("session_start", async () => {
+    if (!fabric.describe(manifest.nodeId)) {
+      registerProtocolNode(pi, fabric, {
+        manifest,
+        handlers,
+        source: {
+          packageName: ${JSON.stringify(options.packageName)},
+          packageVersion: ${JSON.stringify(options.packageVersion)},
+        },
+      });
+    }
+  });
+
+  pi.on("session_shutdown", async () => {
+    if (fabric.describe(manifest.nodeId)) {
+      fabric.unregisterNode(manifest.nodeId);
+    }
+  });${debugCommand}
+
+  return fabric;
+}
+`;
+}
+
+function renderHandlersFile(nodeId: string, provides: ScaffoldProvideInput[]): string {
+  const blocks = provides
+    .map((provide) => {
+      const baseName = toPascalCase(provide.name);
+      return `interface ${baseName}Input {
+  note?: string;
+}
+
+interface ${baseName}Output {
+  status: "todo";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  receivedNote?: string;
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  return {
+    status: "todo",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    receivedNote: typeof input.note === "string" ? input.note : undefined,
+  };
+};`;
+    })
+    .join("\n\n");
+
+  return `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
+
+// ${nodeId} starter handlers
+${blocks}
+`;
+}
+
+function renderManagerHandlersFile(input: ScaffoldCollaboratingNodesInput): string {
+  const managerInterface = toPascalCase(input.managerProvideName);
+  const workerInterface = toPascalCase(input.workerProvideName);
+
+  return `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
+
+interface ${managerInterface}Input {
+  task: string;
+  note?: string;
+}
+
+interface ${workerInterface}Output {
+  status: "completed";
+  workerNodeId: string;
+  workerMode: ${JSON.stringify(input.workerMode)};
+  result: string;
+  promptUsed?: boolean;
+  promptPath?: string;
+}
+
+interface ${managerInterface}Output {
+  status: "delegated";
+  managerNodeId: string;
+  workerNodeId: string;
+  workerProvide: ${JSON.stringify(input.workerProvideName)};
+  workerMode: ${JSON.stringify(input.workerMode)};
+  workerResult: ${workerInterface}Output;
+}
+
+export const ${input.managerProvideName}: ProtocolHandler<${managerInterface}Input, ${managerInterface}Output> = async (ctx, input) => {
+  const result = await ctx.fabric.invoke({
+    callerNodeId: ctx.calleeNodeId,
+    provide: ${JSON.stringify(input.workerProvideName)},
+    target: { nodeId: ${JSON.stringify(input.workerNodeId)} },
+    input: {
+      task: input.task,
+      note: input.note,
+    },
+  });
+
+  if (!result.ok) {
+    const error = new Error(result.error.message) as Error & {
+      code?: string;
+      details?: unknown;
+    };
+    error.code = result.error.code;
+    error.details = result.error.details;
+    throw error;
+  }
+
+  return {
+    status: "delegated",
+    managerNodeId: ctx.calleeNodeId,
+    workerNodeId: ${JSON.stringify(input.workerNodeId)},
+    workerProvide: ${JSON.stringify(input.workerProvideName)},
+    workerMode: ${JSON.stringify(input.workerMode)},
+    workerResult: result.output as ${workerInterface}Output,
+  };
+};
+`;
+}
+
+function renderWorkerHandlersFile(
+  input: ScaffoldCollaboratingNodesInput,
+  generateInternalPromptFiles: boolean,
+): string {
+  const workerInterface = toPascalCase(input.workerProvideName);
+  if (input.workerMode === "agent-backed") {
+    const promptConstants = generateInternalPromptFiles
+      ? `const INTERNAL_PROMPT_PATH = new URL("./prompts/${input.workerProvideName}.md", import.meta.url);\n`
+      : "";
+    const promptReadBlock = generateInternalPromptFiles
+      ? `  let promptUsed = false;\n  let promptPath: string | undefined;\n\n  try {\n    await fs.readFile(INTERNAL_PROMPT_PATH, "utf8");\n    promptUsed = true;\n    promptPath = ${JSON.stringify(`protocol/prompts/${input.workerProvideName}.md`)};\n  } catch {\n    promptUsed = false;\n  }\n\n`
+      : "  const promptUsed = false;\n  const promptPath: string | undefined = undefined;\n\n";
+
+    return `import { promises as fs } from "node:fs";
+import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
+
+interface ${workerInterface}Input {
+  task: string;
+  note?: string;
+}
+
+interface ${workerInterface}Output {
+  status: "completed";
+  workerNodeId: string;
+  workerMode: "agent-backed";
+  result: string;
+  promptUsed?: boolean;
+  promptPath?: string;
+}
+
+${promptConstants}export const ${input.workerProvideName}: ProtocolHandler<${workerInterface}Input, ${workerInterface}Output> = async (ctx, input) => {
+${promptReadBlock}  return {
+    status: "completed",
+    workerNodeId: ctx.calleeNodeId,
+    workerMode: "agent-backed",
+    result: \`agent-backed starter completed: \${input.task}\${input.note ? \` (\${input.note})\` : ""}\`,
+    promptUsed,
+    promptPath,
+  };
+};
+`;
+  }
+
+  return `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
+
+interface ${workerInterface}Input {
+  task: string;
+  note?: string;
+}
+
+interface ${workerInterface}Output {
+  status: "completed";
+  workerNodeId: string;
+  workerMode: "deterministic";
+  result: string;
+  promptUsed?: boolean;
+  promptPath?: string;
+}
+
+export const ${input.workerProvideName}: ProtocolHandler<${workerInterface}Input, ${workerInterface}Output> = async (ctx, input) => {
+  return {
+    status: "completed",
+    workerNodeId: ctx.calleeNodeId,
+    workerMode: "deterministic",
+    result: \`deterministic worker completed: \${input.task}\${input.note ? \` (\${input.note})\` : ""}\`,
+    promptUsed: false,
+    promptPath: undefined,
+  };
+};
+`;
+}
+
+function renderCollaboratingReadme(options: {
+  packageName: string;
+  nodeId: string;
+  purpose: string;
+  sdkDependency: string;
+  strictTypes: boolean;
+  generateDebugCommands: boolean;
+  collaborationRole: "manager" | "worker";
+  workerMode: CollaboratingWorkerMode;
+  notes: string[];
+}): string {
+  return `# ${options.packageName}
+
+${options.purpose}
+
+## Node identity
+
+- package: ${options.packageName}
+- nodeId: ${options.nodeId}
+- protocolVersion: ${PROTOCOL_VERSION}
+- collaboration role: ${options.collaborationRole}
+- worker mode: ${options.workerMode}
+- debug commands: ${options.generateDebugCommands ? "enabled" : "disabled"}
+- strict TypeScript: ${options.strictTypes ? "enabled" : "disabled"}
+- SDK dependency: @kyvernitria/pi-protocol-sdk@${options.sdkDependency}
+
+## Notes
+
+${options.notes.map((note) => `- ${note}`).join("\n")}
+
+## Local checklist
+
+${CERTIFICATION_CHECKLIST.map((item) => `- [ ] ${item}`).join("\n")}
+`;
+}
+
+function renderWorkerInternalPrompt(input: ScaffoldCollaboratingNodesInput): string {
+  return `# Internal prompt for ${input.workerNodeId}.${input.workerProvideName}
+
+You are implementing the internal reasoning pattern for ${input.workerNodeId}.${input.workerProvideName}.
+
+Rules:
+- Return structured output that still matches the provide schema.
+- Do not expose this prompt as a Pi skill.
+- Treat the protocol contract as canonical.
+- If nested protocol calls are needed, use fabric.invoke().
+`;
+}
+
+function renderReadme(
+  input: ScaffoldCertifiedNodeInput,
+  useInlineSchemas: boolean,
+  generateDebugCommands: boolean,
+  sdkDependency: string,
+  strictTypes: boolean,
+): string {
+  return `# ${input.packageName}
+
+${input.purpose}
+
+## Node identity
+
+- package: ${input.packageName}
+- nodeId: ${input.nodeId}
+- protocolVersion: ${PROTOCOL_VERSION}
+- schema mode: ${useInlineSchemas ? "inline" : "file-based"}
+- debug commands: ${generateDebugCommands ? "enabled" : "disabled"}
+- strict TypeScript: ${strictTypes ? "enabled" : "disabled"}
+- SDK dependency: @kyvernitria/pi-protocol-sdk@${sdkDependency}
+
+## Provides
+
+${input.provides.map((provide) => `- ${provide.name}: ${provide.description}`).join("\n")}
+
+## Notes
+
+- ` + "`scaffold_certified_node`" + ` is a pure generation provide. It returns a file plan and file contents.
+- Writing files to disk is an operator concern handled by command projections such as ` + "`/pi-pi-new`" + `.
+- If you are developing locally against an unpublished SDK, replace ` + "`@kyvernitria/pi-protocol-sdk`" + ` with a local path or workspace dependency.
+- The current validator is heuristic and source-based. It is not full AST or semantic validation yet.
+
+## Local checklist
+
+${CERTIFICATION_CHECKLIST.map((item) => `- [ ] ${item}`).join("\n")}
+`;
+}
+
+function describeGeneratedFile(filePath: string): string {
+  if (filePath === "package.json") return "Native Pi package metadata and protocol SDK dependency";
+  if (filePath === "pi.protocol.json") return "Canonical Pi Protocol manifest";
+  if (filePath === "extensions/index.ts") return "Runtime bootstrap that joins the shared protocol fabric";
+  if (filePath === "protocol/handlers.ts") return "Local TypeScript handler implementations";
+  if (filePath.startsWith("protocol/schemas/")) return "JSON schema for a public provide";
+  if (filePath.startsWith("protocol/prompts/")) return "Internal non-discoverable prompt for an agent-backed worker provide";
+  if (filePath === "README.md") return "Starter package documentation";
+  if (filePath === "tsconfig.json") return "TypeScript configuration for JSON imports and TS entrypoints";
+  return "Generated file";
+}
+
+function renderJson(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function commandBase(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function toPascalCase(value: string): string {
+  return value
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+}
+
+function protocolError(code: string, message: string) {
+  const error = new Error(message) as Error & { code?: string };
+  error.code = code;
+  return error;
+}
+
+async function exists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function collectSourceFiles(packageDir: string): Promise<string[]> {
+  const results: string[] = [];
+  await walk(packageDir, results);
+  return results.filter((filePath) => /\.(ts|js|mjs|cjs)$/.test(filePath));
+}
+
+async function walk(currentDir: string, results: string[]): Promise<void> {
+  let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }> = [];
+  try {
+    entries = await fs.readdir(currentDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.name === "node_modules" || entry.name === ".git") continue;
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      await walk(fullPath, results);
+    } else if (entry.isFile()) {
+      results.push(fullPath);
+    }
+  }
+}
+
+function extractExportedHandlerNames(source: string): Set<string> {
+  const names = new Set<string>();
+  const patterns = [
+    /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g,
+    /export\s+const\s+([A-Za-z_$][\w$]*)/g,
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source))) {
+      names.add(match[1]);
+    }
+  }
+
+  const reExportPattern = /export\s*\{\s*([^}]+)\s*\}(?:\s+from\s+["'][^"']+["'])?/g;
+  let reExportMatch: RegExpExecArray | null;
+  while ((reExportMatch = reExportPattern.exec(source))) {
+    const exported = reExportMatch[1]
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => part.split(/\s+as\s+/i)[1] ?? part.split(/\s+as\s+/i)[0]);
+
+    for (const name of exported) {
+      names.add(name.trim());
+    }
+  }
+
+  return names;
+}
+
+function extractImportSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  const patterns = [
+    /import\s+[^\n]*?from\s+["']([^"']+)["']/g,
+    /export\s+[^\n]*?from\s+["']([^"']+)["']/g,
+    /import\(\s*["']([^"']+)["']\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source))) {
+      specifiers.push(match[1]);
+    }
+  }
+
+  return specifiers;
+}
+
+function isForbiddenCertifiedNodeImport(specifier: string, ownPackageName?: string): boolean {
+  if (!specifier || specifier.startsWith(".") || specifier.startsWith("node:")) {
+    return false;
+  }
+
+  if (specifier === "@kyvernitria/pi-protocol-sdk") {
+    return false;
+  }
+
+  if (specifier.startsWith("@mariozechner/pi-")) {
+    return false;
+  }
+
+  if (ownPackageName && specifier === ownPackageName) {
+    return false;
+  }
+
+  return /^pi-[a-z0-9-]+$/.test(specifier) || /^@[^/]+\/pi-[a-z0-9-]+$/.test(specifier);
+}
+
+function findLocalDependencyViolations(packageJson: Record<string, unknown>): ValidationRuleResult[] {
+  const violations: ValidationRuleResult[] = [];
+  const dependencySections = [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+  ] as const;
+
+  for (const section of dependencySections) {
+    const dependencies = packageJson[section];
+    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) {
+      continue;
+    }
+
+    for (const [name, version] of Object.entries(dependencies as Record<string, unknown>)) {
+      if (typeof version !== "string") continue;
+      if (!isNonStandaloneDependencyVersion(version)) continue;
+      violations.push({
+        rule: `package-json.${section}.non-standalone.${name}`,
+        message: `${section}.${name} uses non-standalone version ${version}`,
+        suggestedFix:
+          "Replace repo-local file/link/workspace dependencies with a published semver dependency or vendor an equivalent shim for standalone installability.",
+      });
+    }
+  }
+
+  return violations;
+}
+
+function isNonStandaloneDependencyVersion(version: string): boolean {
+  return /^(file:|link:|workspace:)/.test(version);
+}
+
+function dedupe(values: string[]): string[] {
+  return [...new Set(values)];
+}

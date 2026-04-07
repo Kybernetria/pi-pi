@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "required": ["packageDir"],
+  "properties": {
+    "packageDir": {
+      "type": "string",
+      "description": "Path to the candidate package directory to validate."
+    }
+  }
+}

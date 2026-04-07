@@ -1,0 +1,23 @@
+{
+  "name": "pi-pi",
+  "version": "0.1.0",
+  "type": "module",
+  "keywords": ["pi-package", "pi-protocol", "generator"],
+  "scripts": {
+    "demo": "tsx scripts/demo.ts",
+    "demo:pair-runtime": "tsx scripts/demo-pair-runtime.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.65.2",
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}
