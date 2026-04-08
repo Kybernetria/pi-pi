@@ -25,6 +25,16 @@
       "outputSchema": "./protocol/schemas/plan_certified_node_from_description.output.json"
     },
     {
+      "name": "plan_brownfield_migration",
+      "description": "Inspect an existing repository and return a structured Pi Protocol migration plan for its current commands, handlers, scripts, and bootstrap wiring.",
+      "handler": "plan_brownfield_migration",
+      "version": "1.0.0",
+      "tags": ["plan", "brownfield", "migration"],
+      "effects": ["file_read"],
+      "inputSchema": "./protocol/schemas/plan_brownfield_migration.input.json",
+      "outputSchema": "./protocol/schemas/plan_brownfield_migration.output.json"
+    },
+    {
       "name": "scaffold_certified_node",
       "description": "Generate a TypeScript-first protocol-certified node package template from structured input.",
       "handler": "scaffold_certified_node",

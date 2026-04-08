@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import {
   planCertifiedNodeFromDescription,
+  planBrownfieldMigration,
   scaffoldCertifiedNode,
   validateCertifiedNode,
   type PlanCertifiedNodeFromDescriptionOutput,
+  type PlanBrownfieldMigrationOutput,
   type ScaffoldCertifiedNodeOutput,
   type ValidateCertifiedNodeOutput,
 } from "../protocol/core.ts";
@@ -171,7 +173,46 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.managerProvideName, "delegate_research");
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.workerProvideName, "perform_research");
 
-  console.log("planning and scaffold heuristics passed");
+  // Brownfield migration planning should inspect an existing repo and map current capabilities first.
+  const brownfieldDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-brownfield-"));
+  await fs.mkdir(path.join(brownfieldDir, "extensions"), { recursive: true });
+  await fs.mkdir(path.join(brownfieldDir, "protocol"), { recursive: true });
+  await fs.mkdir(path.join(brownfieldDir, "scripts"), { recursive: true });
+  await fs.writeFile(
+    path.join(brownfieldDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "brownfield-notes",
+        scripts: {
+          dev: "tsx scripts/dev.ts",
+          migrate: "tsx scripts/migrate.ts",
+        },
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf8",
+  );
+  await fs.writeFile(path.join(brownfieldDir, "README.md"), "# Notes\n\nExisting workspace note helper.\n", "utf8");
+  await fs.writeFile(path.join(brownfieldDir, "TODO.md"), "- ship protocol migration\n", "utf8");
+  await fs.writeFile(path.join(brownfieldDir, "extensions", "index.ts"), "export default function activate() {}\n", "utf8");
+  await fs.writeFile(path.join(brownfieldDir, "protocol", "handlers.ts"), "export const summarize_notes = () => {};\n", "utf8");
+  await fs.writeFile(path.join(brownfieldDir, "scripts", "migrate.ts"), "console.log('migrate');\n", "utf8");
+
+  const brownfieldPlan = (await planBrownfieldMigration({
+    repoDir: brownfieldDir,
+    includeFileHints: true,
+  })) as import("../protocol/core.ts").PlanBrownfieldMigrationOutput;
+
+  assert.equal(brownfieldPlan.repoSummary.packageName, "brownfield-notes");
+  assert.ok(brownfieldPlan.capabilityMap.some((entry) => entry.kind === "bootstrap"));
+  assert.ok(brownfieldPlan.capabilityMap.some((entry) => entry.kind === "handler"));
+  assert.ok(brownfieldPlan.proposedPublicProvides.length > 0);
+  assert.ok(brownfieldPlan.proposedProjections.includes("/migrate"));
+  assert.ok(brownfieldPlan.migrationSteps.length >= 3);
+  assert.ok(brownfieldPlan.fileHints?.["pi.protocol.json"]?.[0]);
+
+  console.log("planning, scaffold, and brownfield migration heuristics passed");
 }
 
 main().catch((error: unknown) => {

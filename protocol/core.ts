@@ -67,6 +67,60 @@ export interface PlanCertifiedNodeFromDescriptionOutput {
   collaboratingNodesScaffoldInput?: ScaffoldCollaboratingNodesInput;
 }
 
+export interface BrownfieldRepoCapabilityMapEntry {
+  kind: "command" | "tool" | "script" | "prompt" | "handler" | "bootstrap" | "manifest" | "schema" | "doc";
+  name: string;
+  path: string;
+  evidence: string;
+}
+
+export interface BrownfieldRepoMigrationStep {
+  phase: number;
+  title: string;
+  goal: string;
+  recommendedFiles: string[];
+  notes: string[];
+}
+
+export interface BrownfieldRepoReuseRecommendation {
+  source: string;
+  target: string;
+  rationale: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface PlanBrownfieldMigrationInput {
+  repoDir: string;
+  includeFileHints?: boolean;
+  preferCollaboration?: boolean;
+  includeInstructionDebug?: boolean;
+}
+
+export interface PlanBrownfieldMigrationOutput {
+  repoDir: string;
+  repoSummary: {
+    packageName: string | null;
+    scripts: string[];
+    commands: string[];
+    detectedEntrypoints: string[];
+  };
+  recommendedShape: "single-node" | "collaborating-pair";
+  proposedPublicProvides: ScaffoldProvideInput[];
+  proposedProjections: string[];
+  capabilityMap: BrownfieldRepoCapabilityMapEntry[];
+  reuseRecommendations: BrownfieldRepoReuseRecommendation[];
+  migrationSteps: BrownfieldRepoMigrationStep[];
+  heuristicNotes: string[];
+  manualFollowUps: string[];
+  confidence: "high" | "medium" | "low";
+  internalInstruction: {
+    pathUsed: string;
+    fallbackUsed: boolean;
+  };
+  sourceFiles: string[];
+  fileHints?: Record<string, string[]>;
+}
+
 export interface ScaffoldProvideInput {
   name: string;
   description: string;
@@ -246,6 +300,7 @@ export async function describeCertifiedTemplate(
     toolingProvides: [
       "describe_certified_template",
       "plan_certified_node_from_description",
+      "plan_brownfield_migration",
       "scaffold_certified_node",
       "scaffold_collaborating_nodes",
       "validate_certified_node",
@@ -262,6 +317,7 @@ export async function describeCertifiedTemplate(
       ? [
           "/pi-pi-template",
           '/pi-pi-plan Build me a certified extension that summarizes markdown notes and also offers a local command.',
+          '/pi-pi-migrate {"repoDir":"./some-existing-repo","includeFileHints":true}',
           '/pi-pi-new {"packageName":"pi-hello","nodeId":"pi-hello","purpose":"Greets users","provides":[{"name":"say_hello","description":"Return a greeting."}]}',
           '/pi-pi-new-pair {"managerPackageName":"pi-manager","managerNodeId":"pi-manager","workerPackageName":"pi-worker","workerNodeId":"pi-worker","managerProvideName":"delegate_task","workerProvideName":"do_task","workerMode":"deterministic"}',
           "/pi-pi-validate ./packages/pi-hello",
@@ -270,6 +326,7 @@ export async function describeCertifiedTemplate(
     notes: [
       "scaffold_certified_node is a pure generation provide that returns a file plan and file contents.",
       "plan_certified_node_from_description is a pure planning provide that turns a natural-language brief into scaffold-ready structured output.",
+      "plan_brownfield_migration is a pure planning provide for existing repositories that returns a source-based migration plan.",
       "scaffold_collaborating_nodes is a pure generation provide that returns two package plans and their file contents.",
       "Certified package bootstrap should ensure both the shared fabric and the standard protocol projection.",
       "ctx.delegate is the preferred bound delegation surface for recursive cross-node calls because trace, caller, and budget context stay attached automatically.",
@@ -449,6 +506,89 @@ export async function planCertifiedNodeFromDescription(
       fallbackUsed: instruction.fallbackUsed,
     },
     singleNodeScaffoldInput,
+  };
+}
+
+export async function planBrownfieldMigration(
+  input: PlanBrownfieldMigrationInput,
+): Promise<PlanBrownfieldMigrationOutput> {
+  validateBrownfieldPlanningInput(input);
+
+  const repoDir = path.resolve(input.repoDir);
+  const instruction = await resolveInternalInstruction(
+    "plan-brownfield-migration",
+    ["adapt-brownfield-to-pi-protocol.md"],
+  );
+  const fileHints: Record<string, string[]> = {};
+  const sourceFiles = await collectBrownfieldFiles(repoDir);
+  const packageJsonPath = path.join(repoDir, "package.json");
+  const packageJson = (await readJsonIfExists(packageJsonPath)) as { name?: unknown; scripts?: Record<string, unknown> } | null;
+  const manifestPath = path.join(repoDir, "pi.protocol.json");
+  const manifest = (await readJsonIfExists(manifestPath)) as { provides?: Array<{ name?: string; handler?: string }>; nodeId?: unknown } | null;
+
+  const commands = collectCommandHints(sourceFiles);
+  const scripts = packageJson?.scripts ? Object.keys(packageJson.scripts).filter((key) => typeof key === "string") : [];
+  const detectedEntrypoints = ((await Promise.all([
+    exists(path.join(repoDir, "extensions", "index.ts")).then((value) => (value ? "extensions/index.ts" : null)),
+    exists(path.join(repoDir, "protocol", "handlers.ts")).then((value) => (value ? "protocol/handlers.ts" : null)),
+    exists(path.join(repoDir, "pi.protocol.json")).then((value) => (value ? "pi.protocol.json" : null)),
+  ])) as Array<string | null>).filter((value): value is string => value !== null);
+
+  const capabilityMap = buildBrownfieldCapabilityMap(repoDir, sourceFiles, commands, scripts);
+  const proposedPublicProvides = buildBrownfieldProvideProposals(capabilityMap, manifest);
+  const recommendedShape =
+    input.preferCollaboration === true || capabilityMap.some((entry) => entry.kind === "handler" && /delegate|manager|worker/i.test(entry.name))
+      ? "collaborating-pair"
+      : "single-node";
+
+  const proposedProjections = dedupe([
+    ...(commands.length > 0 ? commands.map((command) => `/${command}`) : []),
+    ...(scripts.length > 0 ? scripts.slice(0, 3).map((script) => `npm run ${script}`) : []),
+  ]);
+
+  const reuseRecommendations = buildBrownfieldReuseRecommendations(capabilityMap, manifest, recommendedShape);
+  const migrationSteps = buildBrownfieldMigrationSteps(recommendedShape, proposedPublicProvides, detectedEntrypoints);
+  const heuristicNotes = [
+    "Heuristic: this planner inspects repo files on disk and infers likely capabilities from names, scripts, handlers, and bootstrap wiring.",
+    "Heuristic: existing commands and scripts are treated as projections candidates, not as the protocol contract itself.",
+    recommendedShape === "collaborating-pair"
+      ? "Heuristic: collaboration was suggested because the repo already exposes a split between orchestration and worker-like responsibilities."
+      : "Heuristic: a single-node shape was suggested because the repo looks cohesive enough to preserve as one certified node for now.",
+  ];
+  const manualFollowUps = [
+    "Confirm any inferred public provides against the repo's actual user-facing behavior.",
+    "If the repository already has external integrations, decide which should stay internal before rewriting manifests.",
+  ];
+
+  if (input.includeFileHints) {
+    fileHints["extensions/index.ts"] = ["Ensure the bootstrap registers the shared fabric and protocol projection on session_start."];
+    fileHints["protocol/handlers.ts"] = ["Map existing handlers or utilities to public provides."];
+    fileHints["pi.protocol.json"] = ["Keep the manifest focused on public protocol surface, not internal implementation details."];
+  }
+
+  return {
+    repoDir,
+    repoSummary: {
+      packageName: typeof packageJson?.name === "string" ? packageJson.name : null,
+      scripts,
+      commands,
+      detectedEntrypoints,
+    },
+    recommendedShape,
+    proposedPublicProvides,
+    proposedProjections,
+    capabilityMap,
+    reuseRecommendations,
+    migrationSteps,
+    heuristicNotes,
+    manualFollowUps,
+    confidence: capabilityMap.length > 6 ? "medium" : "high",
+    internalInstruction: {
+      pathUsed: instruction.relativePath,
+      fallbackUsed: instruction.fallbackUsed,
+    },
+    sourceFiles,
+    fileHints: input.includeFileHints ? fileHints : undefined,
   };
 }
 
@@ -1194,6 +1334,9 @@ export const describe_certified_template: ProtocolHandler = async (_ctx, input) 
 export const plan_certified_node_from_description: ProtocolHandler = async (_ctx, input) =>
   planCertifiedNodeFromDescription(input as PlanCertifiedNodeFromDescriptionInput);
 
+export const plan_brownfield_migration: ProtocolHandler = async (_ctx, input) =>
+  planBrownfieldMigration(input as PlanBrownfieldMigrationInput);
+
 export const scaffold_certified_node: ProtocolHandler = async (_ctx, input) =>
   scaffoldCertifiedNode(input as ScaffoldCertifiedNodeInput);
 
@@ -1210,6 +1353,28 @@ function validatePlanningInput(input: PlanCertifiedNodeFromDescriptionInput): vo
 
   if (!input.description?.trim()) {
     throw protocolError("INVALID_INPUT", "description is required");
+  }
+
+  if (input.preferCollaboration !== undefined && typeof input.preferCollaboration !== "boolean") {
+    throw protocolError("INVALID_INPUT", "preferCollaboration must be boolean when provided");
+  }
+
+  if (input.includeInstructionDebug !== undefined && typeof input.includeInstructionDebug !== "boolean") {
+    throw protocolError("INVALID_INPUT", "includeInstructionDebug must be boolean when provided");
+  }
+}
+
+function validateBrownfieldPlanningInput(input: PlanBrownfieldMigrationInput): void {
+  if (!input || typeof input !== "object") {
+    throw protocolError("INVALID_INPUT", "plan_brownfield_migration requires an input object");
+  }
+
+  if (!input.repoDir?.trim()) {
+    throw protocolError("INVALID_INPUT", "repoDir is required");
+  }
+
+  if (input.includeFileHints !== undefined && typeof input.includeFileHints !== "boolean") {
+    throw protocolError("INVALID_INPUT", "includeFileHints must be boolean when provided");
   }
 
   if (input.preferCollaboration !== undefined && typeof input.preferCollaboration !== "boolean") {
@@ -1389,6 +1554,117 @@ function derivePlanningPolicy(instructionText: string): PlanningPolicy {
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+async function collectBrownfieldFiles(repoDir: string): Promise<string[]> {
+  const sourceFiles = await collectSourceFiles(repoDir);
+  const candidates = [
+    "README.md",
+    "CHANGELOG.md",
+    "TODO.md",
+    "package.json",
+    "pi.protocol.json",
+    "docs/guides/adapt-brownfield-to-pi-protocol-prompt.md",
+  ];
+
+  const present: string[] = [...sourceFiles.map((filePath) => path.relative(repoDir, filePath).replaceAll(path.sep, "/"))];
+  for (const relativePath of candidates) {
+    if (await exists(path.join(repoDir, relativePath))) present.push(relativePath);
+  }
+  return dedupe(present).sort();
+}
+
+function collectCommandHints(sourceFiles: string[]): string[] {
+  return dedupe(
+    sourceFiles
+      .filter((filePath) => filePath.startsWith("extensions/") || filePath.startsWith("scripts/"))
+      .map((filePath) => path.basename(filePath, path.extname(filePath)))
+      .filter((name) => name.length > 0),
+  ).sort();
+}
+
+function buildBrownfieldCapabilityMap(
+  repoDir: string,
+  sourceFiles: string[],
+  commands: string[],
+  scripts: string[],
+): BrownfieldRepoCapabilityMapEntry[] {
+  const entries: BrownfieldRepoCapabilityMapEntry[] = [];
+
+  if (sourceFiles.includes("extensions/index.ts")) {
+    entries.push({ kind: "bootstrap", name: "extension-bootstrap", path: "extensions/index.ts", evidence: "session_start/session_shutdown wiring" });
+  }
+  if (sourceFiles.includes("protocol/handlers.ts")) {
+    entries.push({ kind: "handler", name: "protocol-handlers", path: "protocol/handlers.ts", evidence: "exported protocol handlers" });
+  }
+  if (sourceFiles.includes("pi.protocol.json")) {
+    entries.push({ kind: "manifest", name: "pi.protocol.json", path: "pi.protocol.json", evidence: "protocol manifest" });
+  }
+
+  for (const command of commands) {
+    entries.push({ kind: "command", name: command, path: `scripts/${command}.ts`, evidence: "script/command entrypoint" });
+  }
+  for (const script of scripts) {
+    entries.push({ kind: "script", name: script, path: "package.json", evidence: `npm script ${script}` });
+  }
+
+  if (sourceFiles.includes("README.md")) entries.push({ kind: "doc", name: "README", path: "README.md", evidence: "project overview and user-facing capabilities" });
+  if (sourceFiles.includes("TODO.md")) entries.push({ kind: "doc", name: "TODO", path: "TODO.md", evidence: "planning checklist and gaps" });
+  if (sourceFiles.includes("docs/guides/adapt-brownfield-to-pi-protocol-prompt.md")) {
+    entries.push({ kind: "prompt", name: "brownfield-guide", path: "docs/guides/adapt-brownfield-to-pi-protocol-prompt.md", evidence: "migration guidance prompt" });
+  }
+
+  return entries;
+}
+
+function buildBrownfieldProvideProposals(
+  capabilityMap: BrownfieldRepoCapabilityMapEntry[],
+  manifest: { provides?: Array<{ name?: string; handler?: string }> } | null,
+): ScaffoldProvideInput[] {
+  const provides: ScaffoldProvideInput[] = [];
+  const manifestNames = new Set(manifest?.provides?.map((provide) => provide.name).filter((value): value is string => !!value));
+
+  for (const entry of capabilityMap) {
+    if (entry.kind !== "handler" && entry.kind !== "command" && entry.kind !== "script") continue;
+    const name = entry.kind === "command" ? `project_${entry.name}` : entry.name.replace(/[^a-z0-9_]+/g, "_");
+    if (!name || manifestNames.has(name)) continue;
+    provides.push({ name, description: `Expose the existing ${entry.kind} capability from ${entry.path} as a protocol provide.` });
+    if (provides.length >= 3) break;
+  }
+
+  if (provides.length === 0) {
+    provides.push({ name: "migrate_repository", description: "Plan and guide a brownfield repository migration to Pi Protocol." });
+  }
+  return provides;
+}
+
+function buildBrownfieldReuseRecommendations(
+  capabilityMap: BrownfieldRepoCapabilityMapEntry[],
+  manifest: { provides?: Array<{ name?: string; handler?: string }> } | null,
+  recommendedShape: "single-node" | "collaborating-pair",
+): BrownfieldRepoReuseRecommendation[] {
+  const recommendations: BrownfieldRepoReuseRecommendation[] = [];
+  const hasManifest = !!manifest;
+  recommendations.push({ source: "existing README/TODO/docs", target: "capability map", rationale: "These files usually describe stable user-facing behavior already worth preserving.", confidence: "high" });
+  recommendations.push({ source: "scripts and commands", target: "Pi command projections", rationale: "Existing operator entrypoints can become command projections without changing the underlying capability.", confidence: "medium" });
+  recommendations.push({ source: "protocol/handlers.ts", target: recommendedShape === "collaborating-pair" ? "manager/worker provides" : "single-node provides", rationale: "Handlers are the closest source for protocol contracts and should be reused before inventing new ones.", confidence: hasManifest ? "high" : "medium" });
+  if (!hasManifest) {
+    recommendations.push({ source: "missing pi.protocol.json", target: "new manifest", rationale: "No manifest was found, so the first migration step is to describe the current surface in protocol form.", confidence: "high" });
+  }
+  return recommendations.slice(0, 4);
+}
+
+function buildBrownfieldMigrationSteps(
+  recommendedShape: "single-node" | "collaborating-pair",
+  provides: ScaffoldProvideInput[],
+  detectedEntrypoints: string[],
+): BrownfieldRepoMigrationStep[] {
+  return [
+    { phase: 1, title: "Inventory current capabilities", goal: "Confirm the repo's user-facing commands, handlers, scripts, and docs.", recommendedFiles: detectedEntrypoints, notes: ["Keep this pass source-based and deterministic."] },
+    { phase: 2, title: "Map capabilities to protocol provides", goal: "Turn existing behavior into a compact protocol contract before writing migration code.", recommendedFiles: ["pi.protocol.json", "protocol/handlers.ts"], notes: [recommendedShape === "collaborating-pair" ? "Split orchestration and worker responsibilities." : "Prefer one node unless the repo already has a clear split."] },
+    { phase: 3, title: "Wire bootstrap and command projections", goal: "Preserve existing behavior while exposing Pi-native entrypoints.", recommendedFiles: ["extensions/index.ts", "scripts"], notes: ["Keep standard protocol projection behavior intact."] },
+    { phase: 4, title: "Validate and tighten", goal: "Run validation/tests and only then consider deeper automation.", recommendedFiles: ["TODO.md", "CHANGELOG.md"], notes: [`Begin with ${provides.length} proposed public provide(s).`] },
+  ];
 }
 
 function mentionsAny(value: string, needles: string[]): boolean {
@@ -2567,6 +2843,11 @@ async function exists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function readJsonIfExists(filePath: string): Promise<unknown | null> {
+  if (!(await exists(filePath))) return null;
+  return JSON.parse(await fs.readFile(filePath, "utf8")) as unknown;
 }
 
 async function collectSourceFiles(packageDir: string): Promise<string[]> {

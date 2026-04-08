@@ -39,11 +39,11 @@ Current gap:
 
 ## P1 - improve existing repo migration support
 
-- [ ] add a proper migration-planning mode for existing repos
-- [ ] inspect existing commands/tools/prompts and map them to provides/projections
+- [x] add a proper migration-planning mode for existing repos
+- [x] inspect existing commands/tools/prompts and map them to provides/projections
 - [ ] improve AST-assisted detection for bootstrap and handler wiring
 - [ ] add real rewrite/patch guidance instead of only validation and fresh scaffolds
-- [ ] add better reuse recommendations when an installed node already satisfies part of the brief
+- [x] add better reuse recommendations when an installed node already satisfies part of the brief
 
 ## P2 - strengthen validation and test coverage
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- added a brownfield migration-planning provide and command that inspects an existing repo's commands, scripts, handlers, bootstrap wiring, and docs, then returns a structured Pi Protocol migration plan
 - added an internal prompt-awareness helper that is installed through the standard `protocol` projection path so top-level chat can prefer protocol discovery before scaffolding new code
 - made `ensureProtocolAgentProjection(...)` registration per runtime/target instead of a blunt process-global singleton, which keeps the `protocol` tool discoverable across repeated startups and multiple runtimes in one process
 - improved natural-language planning heuristics so plain-language briefs can infer richer candidate provides and better single-node vs collaborating-pair recommendations

@@ -13,6 +13,8 @@ import type {
   DescribeCertifiedTemplateOutput,
   PlanCertifiedNodeFromDescriptionInput,
   PlanCertifiedNodeFromDescriptionOutput,
+  PlanBrownfieldMigrationInput,
+  PlanBrownfieldMigrationOutput,
   ScaffoldCertifiedNodeInput,
   ScaffoldCertifiedNodeOutput,
   ScaffoldCollaboratingNodesInput,
@@ -40,6 +42,10 @@ type PiRuntime = ExtensionAPI &
 
 interface PiPiPlanCommandEnvelope {
   input?: PlanCertifiedNodeFromDescriptionInput;
+}
+
+interface PiPiMigrateCommandEnvelope {
+  input?: { repoDir?: string; includeFileHints?: boolean; preferCollaboration?: boolean; includeInstructionDebug?: boolean };
 }
 
 interface PiPiNewCommandEnvelope {
@@ -116,6 +122,20 @@ function parsePlanCommandInput(
 
   const envelope = parsed as PiPiPlanCommandEnvelope & Record<string, unknown>;
   return isRecord(envelope.input) ? (envelope.input as PlanCertifiedNodeFromDescriptionInput) : envelope;
+}
+
+function parseMigrateCommandInput(
+  args: string | undefined,
+): { input: PlanBrownfieldMigrationInput | Record<string, unknown> } {
+  const parsed = parseJsonArgs(args);
+  if (!isRecord(parsed)) {
+    return { input: {} };
+  }
+
+  const envelope = parsed as PiPiMigrateCommandEnvelope & Record<string, unknown>;
+  return {
+    input: isRecord(envelope.input) ? (envelope.input as PlanBrownfieldMigrationInput) : envelope,
+  };
 }
 
 function parseNewCommandInput(
@@ -210,6 +230,20 @@ export default function activate(pi: PiRuntime) {
           "plan_certified_node_from_description",
           input,
         );
+        notifyResult(ctx, result);
+      } catch (error) {
+        ctx.ui.notify(toErrorMessage(error), "error");
+      }
+    },
+  });
+
+  pi.registerCommand?.("pi-pi-migrate", {
+    description: "Inspect an existing repository and return a structured brownfield Pi Protocol migration plan",
+    handler: async (args, ctx) => {
+      try {
+        const parsed = parseJsonArgs(args, {});
+        const input = isRecord(parsed) && isRecord((parsed as PiPiMigrateCommandEnvelope).input) ? (parsed as PiPiMigrateCommandEnvelope).input : parsed;
+        const result = await invokeSelf<PlanBrownfieldMigrationOutput>(fabric, "plan_brownfield_migration", input);
         notifyResult(ctx, result);
       } catch (error) {
         ctx.ui.notify(toErrorMessage(error), "error");

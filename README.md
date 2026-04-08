@@ -18,6 +18,7 @@ It follows the protocol itself:
 
 - `describe_certified_template`
 - `plan_certified_node_from_description`
+- `plan_brownfield_migration`
 - `scaffold_certified_node`
 - `scaffold_collaborating_nodes`
 - `validate_certified_node`
@@ -26,6 +27,7 @@ It follows the protocol itself:
 
 - `/pi-pi-template`
 - `/pi-pi-plan`
+- `/pi-pi-migrate`
 - `/pi-pi-new`
 - `/pi-pi-new-pair`
 - `/pi-pi-validate`
@@ -33,9 +35,10 @@ It follows the protocol itself:
 Important separation:
 
 - `plan_certified_node_from_description` is a pure planning provide. It turns a natural-language brief into scaffold-ready structured output.
+- `plan_brownfield_migration` is a pure planning provide for existing repositories. It inspects source-based repo structure and returns a migration plan rather than a fresh scaffold.
 - `scaffold_certified_node` is a pure generation provide. It returns a file plan and file contents.
 - `scaffold_collaborating_nodes` is a pure generation provide. It returns two package plans and grouped file contents.
-- `/pi-pi-new` and `/pi-pi-new-pair` are operator-facing projections. If you pass `destinationDir`, they write generated files to disk.
+- `/pi-pi-new`, `/pi-pi-new-pair`, and `/pi-pi-migrate` are operator-facing projections. If you pass `destinationDir`, the scaffold commands write generated files to disk.
 
 ## Collaborating nodes
 
@@ -152,8 +155,9 @@ The demo verifies that:
 3. `pi-pi` validates itself successfully
 4. `pi-pi` can describe the certified template
 5. `pi-pi` can interpret a natural-language brief into a structured plan using internal instruction files
-6. planner heuristics infer richer candidate provides from plain text while staying capability-first
-7. `pi-pi` can scaffold a TypeScript certified-node template
+6. `pi-pi` can inspect a brownfield repository and return a structured migration plan
+7. planner heuristics infer richer candidate provides from plain text while staying capability-first
+8. `pi-pi` can scaffold a TypeScript certified-node template
 8. generated bootstrap includes `ensureProtocolAgentProjection(...)`
 9. `pi-pi` can scaffold a collaborating manager/worker pair
 10. generated packages validate successfully
@@ -225,6 +229,7 @@ Try:
 
 - `/pi-pi-template`
 - `/pi-pi-plan Build me a certified extension that summarizes markdown notes and also offers a local command.`
+- `/pi-pi-migrate {"repoDir":"./some-existing-repo","includeFileHints":true}`
 - `/pi-pi-new { ...json input... }`
 - `/pi-pi-new-pair { ...json input... }`
 - `/pi-pi-validate ./some-generated-package`
