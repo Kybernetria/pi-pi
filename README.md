@@ -109,7 +109,7 @@ It does **not** yet do full semantic validation, but it now includes a few targe
 ## Runtime model notes
 
 - certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
-- the standard `protocol` projection now also installs a tiny per-runtime prompt-awareness hook so top-level chat prefers protocol discovery/reuse before scaffolding new code
+- the standard `protocol` projection now also installs a tiny per-runtime prompt-awareness hook so top-level chat prefers protocol discovery/reuse for build/modify/integrate/reuse requests, while simple questions stay direct
 - `protocol` registry output is intentionally concise and token-efficient so a plain registry call acts like a compact node-level capability catalog
 - the standard discovery path is tiered: `registry` for compact node summaries, `describe_node` for one node's public provides, then `describe_provide` for the exact contract
 - when the registry gets large, the `protocol` tool stays node-first and should be followed by `describe_node` or `find_provides` instead of scanning a full provide dump
@@ -142,6 +142,7 @@ You can override that with `sdkDependency` in scaffold input if you want a diffe
 npm install
 npm run typecheck
 npm run test:planning
+npm run test:routing-policy
 npm run test:validator-fixtures
 npm run test:regressions
 npm run test:sdk-session
@@ -167,6 +168,14 @@ The demo verifies that:
 13. scaffolded single-node handlers and schemas become more realistic when the brief clearly implies search, summary, validation, Q&A, task extraction, or classification behavior
 14. command projections remain aligned with the protocol handlers
 15. validator failure fixtures catch bootstrap/session-start and missing-handler edge cases
+
+## Protocol routing policy
+
+Use the standard `protocol` tool when the request is capability-heavy or could reuse installed work.
+
+- simple question, explanation, or quick lookup: answer directly
+- build, modify, integrate, migrate, validate, reuse, or multi-step request: check protocol first
+- if no installed capability fits: do the work directly instead of forcing a protocol match
 
 ## Protocol discovery reuse example
 

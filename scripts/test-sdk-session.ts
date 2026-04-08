@@ -64,8 +64,12 @@ async function main(): Promise<void> {
     "before_agent_start should inject the protocol-awareness helper into real AgentSession turns",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("check `protocol` for matching installed public provides before generating new code"),
-    "top-level chat path should be nudged toward protocol discovery before scaffolding new code",
+    effectiveSystemPrompt.includes("For build, modify, integrate, migrate, validate, or reuse requests"),
+    "top-level chat path should be nudged toward protocol discovery for complex requests",
+  );
+  assert.ok(
+    effectiveSystemPrompt.includes("Route simple questions and quick lookups directly"),
+    "prompt-awareness helper should tell the agent to skip protocol for simple requests",
   );
   assert.ok(
     effectiveSystemPrompt.includes("Use tiered discovery: start with the compact node-level registry"),

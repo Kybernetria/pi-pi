@@ -7,6 +7,61 @@ export const PROTOCOL_TOOL_NAME = "protocol";
 const PROTOCOL_PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
 const REGISTRY_SUMMARY_THRESHOLD = 40;
 
+export type ProtocolRoutingIntent = "direct" | "protocol-first";
+
+const PROTOCOL_ROUTING_COMPLEX_HINTS = [
+  "build",
+  "create",
+  "make",
+  "implement",
+  "add",
+  "modify",
+  "update",
+  "change",
+  "extend",
+  "refactor",
+  "integrate",
+  "migrate",
+  "reuse",
+  "replace",
+  "scaffold",
+  "inspect repo",
+  "existing repo",
+  "check protocol",
+  "look into protocol",
+  "protocol first",
+  "discover capabilities",
+  "new extension",
+  "new package",
+  "workflow",
+  "multi-step",
+  "architecture",
+  "extension",
+  "plugin",
+  "validate",
+  "summarizer",
+];
+
+const PROTOCOL_ROUTING_DIRECT_HINTS = [
+  "what is",
+  "explain",
+  "define",
+  "meaning",
+  "translate",
+  "quick",
+  "brief",
+  "one sentence",
+  "short answer",
+];
+
+function matchesRoutingHint(text: string, hint: string): boolean {
+  if (hint.includes(" ")) {
+    return text.includes(hint);
+  }
+
+  return new RegExp(`\\b${hint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text);
+}
+
 const DEFAULT_MAX_DEPTH = 16;
 const DEFAULT_TIMEOUT_MS = 120000;
 
@@ -1026,11 +1081,34 @@ function listVisibleToolNames(pi: ProtocolAgentProjectionTarget): Set<string> {
   return new Set((pi.getAllTools?.() ?? []).map((tool) => tool.name));
 }
 
+export function classifyProtocolRoutingIntent(prompt: string): ProtocolRoutingIntent {
+  const normalized = prompt.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return "direct";
+
+  const hasComplexHint = PROTOCOL_ROUTING_COMPLEX_HINTS.some((hint) => matchesRoutingHint(normalized, hint));
+  if (hasComplexHint) return "protocol-first";
+
+  const hasDirectHint = PROTOCOL_ROUTING_DIRECT_HINTS.some((hint) => matchesRoutingHint(normalized, hint));
+  const wordCount = normalized.split(" ").filter(Boolean).length;
+
+  if (hasDirectHint && wordCount <= 18) {
+    return "direct";
+  }
+
+  if (wordCount >= 20) {
+    return "protocol-first";
+  }
+
+  return "direct";
+}
+
 function renderProtocolPromptAwareness(toolName: string): string {
   return `${PROTOCOL_PROMPT_AWARENESS_MARKER}
-- When a user asks for a capability or workflow, check \`${toolName}\` for matching installed public provides before generating new code.
+- Route simple questions and quick lookups directly; do not force protocol discovery when it is unnecessary.
+- For build, modify, integrate, migrate, validate, or reuse requests, check \`${toolName}\` first for matching installed public provides before generating new code.
 - Prefer reusing and invoking discovered public provides when they already satisfy the request.
 - Use tiered discovery: start with the compact node-level registry, then inspect likely nodes with \`describe_node\`, then inspect exact contracts with \`describe_provide\`.
+- If no installed capability fits, proceed directly with generation or explanation instead of forcing a protocol match.
 - When the registry is large, prefer \`find_provides\` over scanning the full registry dump.`;
 }
 
@@ -1269,9 +1347,11 @@ function createProtocolTool(
     promptGuidelines: [
       "Use this tool to discover Pi Protocol nodes and invoke public provides without needing one tool per provide.",
       "Valid actions are: registry, describe_node, describe_provide, find_provides, invoke.",
+      "Route simple questions directly; use protocol discovery first for build, modify, integrate, migrate, validate, or reuse requests.",
       "Start with {\"action\":\"registry\"} when you want a concise node-level capability catalog.",
       "Use tiered discovery: registry -> describe_node -> describe_provide -> invoke.",
       "If the registry looks large, switch to find_provides by name or tags instead of scanning every available provide.",
+      "If no installed capability fits, proceed directly instead of forcing a protocol match.",
       "Prefer deterministic target.nodeId when known. If multiple public providers match and no target is specified, expect ambiguity.",
       "Treat provides as the canonical contract. Internal implementation may be deterministic or agent-backed.",
     ],
