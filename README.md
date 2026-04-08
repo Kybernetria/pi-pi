@@ -110,8 +110,9 @@ It does **not** yet do full semantic validation, but it now includes a few targe
 
 - certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
 - the standard `protocol` projection now also installs a tiny per-runtime prompt-awareness hook so top-level chat prefers protocol discovery/reuse before scaffolding new code
-- `protocol` registry output is intentionally concise and token-efficient so a plain registry call can act like a compact capability catalog
-- when the registry gets large, the `protocol` tool summarizes by node/public-provide counts and should be followed by `find_provides` instead of scanning a full provide dump
+- `protocol` registry output is intentionally concise and token-efficient so a plain registry call acts like a compact node-level capability catalog
+- the standard discovery path is tiered: `registry` for compact node summaries, `describe_node` for one node's public provides, then `describe_provide` for the exact contract
+- when the registry gets large, the `protocol` tool stays node-first and should be followed by `describe_node` or `find_provides` instead of scanning a full provide dump
 - in real Pi runtimes, projection/tool registration should happen during `session_start` or equivalent runtime startup, not raw extension loading
 - the standard `protocol` tool is a projection over the protocol, not the protocol itself
 - `ctx.delegate` is the preferred bound recursive delegation surface because trace, caller, budget, and depth context stay attached automatically
@@ -141,6 +142,7 @@ You can override that with `sdkDependency` in scaffold input if you want a diffe
 npm install
 npm run typecheck
 npm run test:planning
+npm run test:validator-fixtures
 npm run test:regressions
 npm run test:sdk-session
 npm run demo
@@ -158,12 +160,26 @@ The demo verifies that:
 6. `pi-pi` can inspect a brownfield repository and return a structured migration plan
 7. planner heuristics infer richer candidate provides from plain text while staying capability-first
 8. `pi-pi` can scaffold a TypeScript certified-node template
-8. generated bootstrap includes `ensureProtocolAgentProjection(...)`
-9. `pi-pi` can scaffold a collaborating manager/worker pair
-10. generated packages validate successfully
-11. generated manager handlers call workers through `ctx.delegate.invoke()`
-12. scaffolded single-node handlers and schemas become more realistic when the brief clearly implies search, summary, validation, Q&A, task extraction, or classification behavior
-13. command projections remain aligned with the protocol handlers
+9. generated bootstrap includes `ensureProtocolAgentProjection(...)`
+10. `pi-pi` can scaffold a collaborating manager/worker pair
+11. generated packages validate successfully
+12. generated manager handlers call workers through `ctx.delegate.invoke()`
+13. scaffolded single-node handlers and schemas become more realistic when the brief clearly implies search, summary, validation, Q&A, task extraction, or classification behavior
+14. command projections remain aligned with the protocol handlers
+15. validator failure fixtures catch bootstrap/session-start and missing-handler edge cases
+
+## Protocol discovery reuse example
+
+Use the standard `protocol` tool in tiers:
+
+1. compact registry:
+   - `{ "action": "registry" }`
+2. inspect one likely node:
+   - `{ "action": "describe_node", "nodeId": "pi-pi" }`
+3. inspect one exact provide:
+   - `{ "action": "describe_provide", "nodeId": "pi-pi", "provide": "plan_brownfield_migration" }`
+4. invoke it once the contract fits:
+   - `{ "action": "invoke", "request": { "provide": "plan_brownfield_migration", "target": { "nodeId": "pi-pi" }, "input": { "repoDir": ".", "includeFileHints": true } } }`
 
 For an end-to-end generated-pair runtime proof, also run:
 

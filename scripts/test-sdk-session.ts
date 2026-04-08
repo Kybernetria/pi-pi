@@ -67,6 +67,10 @@ async function main(): Promise<void> {
     effectiveSystemPrompt.includes("check `protocol` for matching installed public provides before generating new code"),
     "top-level chat path should be nudged toward protocol discovery before scaffolding new code",
   );
+  assert.ok(
+    effectiveSystemPrompt.includes("Use tiered discovery: start with the compact node-level registry"),
+    "prompt-awareness helper should explain the node-first tiered discovery path",
+  );
 
   console.log("real AgentSession protocol discoverability passed");
   session.dispose();

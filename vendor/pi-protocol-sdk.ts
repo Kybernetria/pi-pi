@@ -1030,6 +1030,7 @@ function renderProtocolPromptAwareness(toolName: string): string {
   return `${PROTOCOL_PROMPT_AWARENESS_MARKER}
 - When a user asks for a capability or workflow, check \`${toolName}\` for matching installed public provides before generating new code.
 - Prefer reusing and invoking discovered public provides when they already satisfy the request.
+- Use tiered discovery: start with the compact node-level registry, then inspect likely nodes with \`describe_node\`, then inspect exact contracts with \`describe_provide\`.
 - When the registry is large, prefer \`find_provides\` over scanning the full registry dump.`;
 }
 
@@ -1105,50 +1106,116 @@ export function ensureProtocolAgentProjection(
   return { toolName, registered: true };
 }
 
+function trimProtocolText(value: string | undefined, maxLength: number): string {
+  const normalized = value?.replace(/\s+/g, " ").trim() ?? "";
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 1)}…`;
+}
+
 function summarizeProtocolProvide(provide: ProtocolProvideSnapshot): string {
-  const qualifiers = [provide.tags?.length ? `tags:${provide.tags.join(",")}` : "", provide.effects?.length ? `effects:${provide.effects.join(",")}` : ""]
+  const qualifiers = [
+    provide.tags?.length ? `tags:${provide.tags.slice(0, 3).join(",")}` : "",
+    provide.effects?.length ? `effects:${provide.effects.slice(0, 3).join(",")}` : "",
+  ]
     .filter(Boolean)
     .join(" ");
+  const description = trimProtocolText(provide.description, 88);
   return qualifiers.length > 0
-    ? `- ${provide.nodeId}.${provide.name} (${qualifiers})`
-    : `- ${provide.nodeId}.${provide.name}`;
+    ? `- ${provide.nodeId}.${provide.name} — ${description} (${qualifiers})`
+    : `- ${provide.nodeId}.${provide.name} — ${description}`;
+}
+
+function summarizeProtocolNode(node: ProtocolNodeSnapshot): string {
+  const publicProvideCount = node.provides.filter((provide) => provide.visibility === "public").length;
+  const tagText = node.tags?.length ? ` tags:${node.tags.slice(0, 3).join(",")}` : "";
+  return `- ${node.nodeId} — ${trimProtocolText(node.purpose, 88)} (${publicProvideCount} public provide${publicProvideCount === 1 ? "" : "s"}${tagText})`;
 }
 
 function formatProtocolRegistryResult(registry: ProtocolRegistrySnapshot): string {
   const publicProvides = registry.provides.filter((provide) => provide.visibility === "public");
+  const summarizedNodes = registry.nodes
+    .map((node) => ({
+      ...node,
+      provides: node.provides.filter((provide) => provide.visibility === "public"),
+    }))
+    .filter((node) => node.provides.length > 0)
+    .sort((a, b) => b.provides.length - a.provides.length || a.nodeId.localeCompare(b.nodeId));
+
   const lines = [
     `protocol registry v${registry.protocolVersion}`,
     `nodes: ${registry.nodes.length}`,
     `public provides: ${publicProvides.length}`,
+    "",
+    "available nodes:",
   ];
 
-  if (publicProvides.length > REGISTRY_SUMMARY_THRESHOLD) {
-    const publicProvideCountsByNode = registry.nodes
-      .map((node) => ({
-        nodeId: node.nodeId,
-        publicProvideCount: node.provides.filter((provide) => provide.visibility === "public").length,
-      }))
-      .filter((entry) => entry.publicProvideCount > 0)
-      .sort((a, b) => b.publicProvideCount - a.publicProvideCount || a.nodeId.localeCompare(b.nodeId));
-
-    lines.push("", "nodes by public provide count:");
-    for (const entry of publicProvideCountsByNode) {
-      lines.push(`- ${entry.nodeId}: ${entry.publicProvideCount} public provide${entry.publicProvideCount === 1 ? "" : "s"}`);
-    }
-
-    lines.push(
-      "",
-      "registry is large; narrow with find_provides:",
-      '- {"action":"find_provides","query":{"name":"...","visibility":"public"}}',
-      '- {"action":"find_provides","query":{"tagsAny":["..."],"visibility":"public"}}',
-    );
-    return lines.join("\n");
+  for (const node of summarizedNodes) {
+    lines.push(summarizeProtocolNode(node));
   }
 
-  lines.push("", "available public provides:");
+  lines.push(
+    "",
+    "tiered discovery:",
+    '- describe a likely node: {"action":"describe_node","nodeId":"..."}',
+    '- search by name: {"action":"find_provides","query":{"name":"...","visibility":"public"}}',
+    '- search by tags: {"action":"find_provides","query":{"tagsAny":["..."],"visibility":"public"}}',
+  );
+
+  if (publicProvides.length > REGISTRY_SUMMARY_THRESHOLD) {
+    lines.push("- registry is intentionally node-first here so token cost scales with nodes rather than total provides");
+  }
+
+  return lines.join("\n");
+}
+
+function formatProtocolNodeResult(node: ProtocolNodeSnapshot): string {
+  const publicProvides = node.provides.filter((provide) => provide.visibility === "public");
+  const lines = [
+    `node ${node.nodeId}`,
+    `purpose: ${trimProtocolText(node.purpose, 160)}`,
+    `public provides: ${publicProvides.length}`,
+  ];
+
+  if (node.tags?.length) {
+    lines.push(`tags: ${node.tags.join(", ")}`);
+  }
+
+  if (node.source?.packageName) {
+    lines.push(
+      `source: ${node.source.packageName}${node.source.packageVersion ? `@${node.source.packageVersion}` : ""}`,
+    );
+  }
+
+  lines.push("", "public provides:");
   for (const provide of publicProvides) {
     lines.push(summarizeProtocolProvide(provide));
   }
+
+  lines.push("", `next: inspect one provide with {"action":"describe_provide","nodeId":${JSON.stringify(node.nodeId)},"provide":"..."}`);
+  return lines.join("\n");
+}
+
+function formatProtocolProvideResult(provide: ProtocolProvideDescription): string {
+  const lines = [
+    `provide ${provide.nodeId}.${provide.name}`,
+    `description: ${trimProtocolText(provide.description, 180)}`,
+    `purpose: ${trimProtocolText(provide.purpose, 180)}`,
+    `visibility: ${provide.visibility}`,
+  ];
+
+  if (provide.version) {
+    lines.push(`version: ${provide.version}`);
+  }
+  if (provide.tags?.length) {
+    lines.push(`tags: ${provide.tags.join(", ")}`);
+  }
+  if (provide.effects?.length) {
+    lines.push(`effects: ${provide.effects.join(", ")}`);
+  }
+
+  lines.push(
+    `inputSchema: ${typeof provide.inputSchema === "string" ? provide.inputSchema : JSON.stringify(provide.inputSchema)}`,
+    `outputSchema: ${typeof provide.outputSchema === "string" ? provide.outputSchema : JSON.stringify(provide.outputSchema)}`,
+  );
 
   return lines.join("\n");
 }
@@ -1173,6 +1240,10 @@ function formatProtocolToolContent(result: ProtocolToolResult): string {
   switch (result.action) {
     case "registry":
       return formatProtocolRegistryResult(result.registry);
+    case "describe_node":
+      return formatProtocolNodeResult(result.node);
+    case "describe_provide":
+      return formatProtocolProvideResult(result.provide);
     case "find_provides":
       return formatProtocolFindProvidesResult(result.results);
     default:
@@ -1198,7 +1269,8 @@ function createProtocolTool(
     promptGuidelines: [
       "Use this tool to discover Pi Protocol nodes and invoke public provides without needing one tool per provide.",
       "Valid actions are: registry, describe_node, describe_provide, find_provides, invoke.",
-      "Start with {\"action\":\"registry\"} when you want a concise catalog of all available public provides.",
+      "Start with {\"action\":\"registry\"} when you want a concise node-level capability catalog.",
+      "Use tiered discovery: registry -> describe_node -> describe_provide -> invoke.",
       "If the registry looks large, switch to find_provides by name or tags instead of scanning every available provide.",
       "Prefer deterministic target.nodeId when known. If multiple public providers match and no target is specified, expect ambiguity.",
       "Treat provides as the canonical contract. Internal implementation may be deterministic or agent-backed.",

@@ -7,6 +7,7 @@
     "demo": "tsx scripts/demo.ts",
     "demo:pair-runtime": "tsx scripts/demo-pair-runtime.ts",
     "test:planning": "tsx scripts/test-planning-and-scaffolds.ts",
+    "test:validator-fixtures": "tsx scripts/test-validator-failure-fixtures.ts",
     "test:regressions": "tsx scripts/test-regressions.ts",
     "test:sdk-session": "tsx scripts/test-sdk-session.ts",
     "typecheck": "tsc --noEmit"

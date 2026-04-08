@@ -6,10 +6,12 @@ import {
   planCertifiedNodeFromDescription,
   planBrownfieldMigration,
   scaffoldCertifiedNode,
+  scaffoldCollaboratingNodes,
   validateCertifiedNode,
   type PlanCertifiedNodeFromDescriptionOutput,
   type PlanBrownfieldMigrationOutput,
   type ScaffoldCertifiedNodeOutput,
+  type ScaffoldCollaboratingNodesOutput,
   type ValidateCertifiedNodeOutput,
 } from "../protocol/core.ts";
 
@@ -173,6 +175,12 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.managerProvideName, "delegate_research");
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.workerProvideName, "perform_research");
 
+  const pairScaffold = (await scaffoldCollaboratingNodes(
+    requireOk(researchPairPlan.collaboratingNodesScaffoldInput, "pair brief should return collaborating scaffold input"),
+  )) as ScaffoldCollaboratingNodesOutput;
+  assert.ok(Object.keys(pairScaffold.worker.files).some((filePath) => filePath.startsWith("protocol/prompts/")));
+  assert.ok(!pairScaffold.worker.files["pi.protocol.json"].includes("protocol/prompts/"));
+
   // Brownfield migration planning should inspect an existing repo and map current capabilities first.
   const brownfieldDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-brownfield-"));
   await fs.mkdir(path.join(brownfieldDir, "extensions"), { recursive: true });
@@ -210,6 +218,7 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
   assert.ok(brownfieldPlan.proposedPublicProvides.length > 0);
   assert.ok(brownfieldPlan.proposedProjections.includes("/migrate"));
   assert.ok(brownfieldPlan.migrationSteps.length >= 3);
+  assert.ok(brownfieldPlan.patchGuidance.some((entry) => entry.file === "pi.protocol.json"));
   assert.ok(brownfieldPlan.fileHints?.["pi.protocol.json"]?.[0]);
 
   console.log("planning, scaffold, and brownfield migration heuristics passed");

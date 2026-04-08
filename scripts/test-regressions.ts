@@ -99,12 +99,19 @@ async function main(): Promise<void> {
 
   const registryResult = await protocolToolA?.execute?.("tool-call-1", { action: "registry" });
   const registryText = registryResult?.content?.[0]?.text ?? "";
-  assert.ok(registryText.includes("available public provides:"));
-  assert.ok(registryText.includes("- pi-pi.describe_certified_template"));
+  assert.ok(registryText.includes("available nodes:"));
+  assert.ok(registryText.includes("- pi-pi —"));
+  assert.ok(registryText.includes("tiered discovery:"));
   assert.ok(
     !registryText.includes('"registry": {'),
     "registry tool output should be concise text rather than the full nested JSON snapshot",
   );
+
+  const nodeResult = await protocolToolA?.execute?.("tool-call-1b", { action: "describe_node", nodeId: "pi-pi" });
+  const nodeText = nodeResult?.content?.[0]?.text ?? "";
+  assert.ok(nodeText.includes("node pi-pi"));
+  assert.ok(nodeText.includes("public provides:"));
+  assert.ok(nodeText.includes("describe_certified_template"));
 
   const noopHandler: ProtocolHandler = async () => ({ ok: true });
   for (let index = 0; index < 25; index += 1) {
@@ -132,12 +139,12 @@ async function main(): Promise<void> {
 
   const largeRegistryResult = await protocolToolA?.execute?.("tool-call-2", { action: "registry" });
   const largeRegistryText = largeRegistryResult?.content?.[0]?.text ?? "";
-  assert.ok(largeRegistryText.includes("nodes by public provide count:"));
-  assert.ok(largeRegistryText.includes("registry is large; narrow with find_provides:"));
-  assert.ok(largeRegistryText.includes("- test-node-0: 4 public provides"));
+  assert.ok(largeRegistryText.includes("available nodes:"));
+  assert.ok(largeRegistryText.includes("- test-node-0 —"));
+  assert.ok(largeRegistryText.includes("registry is intentionally node-first here so token cost scales with nodes rather than total provides"));
   assert.ok(
     !largeRegistryText.includes("available public provides:"),
-    "large registries should summarize by node/count instead of dumping every provide",
+    "large registries should stay node-first instead of dumping every provide",
   );
 
   const promptA = await runtimeA.runBeforeAgentStart("Build me a capability if needed.", "BASE");

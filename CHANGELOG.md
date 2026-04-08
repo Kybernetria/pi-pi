@@ -9,8 +9,9 @@
 - upgraded generated single-node schemas and handler stubs for common capabilities such as search, summarization, validation, Q&A, task extraction, and classification
 - added regression and planning/scaffold verification scripts: `npm run test:regressions` and `npm run test:planning`
 - added `npm run test:sdk-session` to verify the standard `protocol` projection and prompt-awareness helper inside a real Pi SDK `AgentSession`
-- made `protocol` registry output concise and token-efficient so a plain `{ "action": "registry" }` call yields a compact catalog of available public provides
+- made `protocol` registry output node-first and tiered so `{ "action": "registry" }` yields a compact node catalog, followed by `describe_node` and `describe_provide` for deeper inspection
 - fixed a greenfield scaffold flaw where tiny `ping`/`pong` test packages could drift into validation-shaped schemas and handlers, and added a validator guardrail for obviously wrong `ping` contracts
 - normalized `sdkDependency` handling so chat-supplied package names like `@mariozechner/pi-protocol-sdk` no longer corrupt generated dependency entries or README notes
-- made large `protocol` registry calls summarize by node/public-provide counts and steer the agent toward `find_provides` instead of dumping hundreds of provides into context
+- made large `protocol` registry calls stay node-first and steer the agent toward `describe_node` / `find_provides` instead of dumping hundreds of provides into context
+- added brownfield patch-guidance output and validator failure-fixture coverage for bootstrap/session-start and handler wiring edge cases
 - added `docs/guides/adapt-brownfield-to-pi-protocol-prompt.md` as a copy-paste starter prompt for brownfield migration sessions

@@ -89,6 +89,13 @@ export interface BrownfieldRepoReuseRecommendation {
   confidence: "high" | "medium" | "low";
 }
 
+export interface BrownfieldRepoPatchGuidanceEntry {
+  file: string;
+  action: "create" | "adapt" | "review";
+  rationale: string;
+  starterPatch: string[];
+}
+
 export interface PlanBrownfieldMigrationInput {
   repoDir: string;
   includeFileHints?: boolean;
@@ -110,6 +117,7 @@ export interface PlanBrownfieldMigrationOutput {
   capabilityMap: BrownfieldRepoCapabilityMapEntry[];
   reuseRecommendations: BrownfieldRepoReuseRecommendation[];
   migrationSteps: BrownfieldRepoMigrationStep[];
+  patchGuidance: BrownfieldRepoPatchGuidanceEntry[];
   heuristicNotes: string[];
   manualFollowUps: string[];
   confidence: "high" | "medium" | "low";
@@ -253,6 +261,7 @@ interface SourceAstAnalysis {
 interface ExtensionBootstrapAnalysis {
   hasEnsureProtocolFabricCall: boolean;
   hasEnsureProtocolAgentProjectionCall: boolean;
+  hasEnsureProtocolAgentProjectionOnSessionStart: boolean;
   hasRegisterProtocolNodeCall: boolean;
   hasSessionStartRegistration: boolean;
   hasSessionShutdownUnregister: boolean;
@@ -548,6 +557,7 @@ export async function planBrownfieldMigration(
 
   const reuseRecommendations = buildBrownfieldReuseRecommendations(capabilityMap, manifest, recommendedShape);
   const migrationSteps = buildBrownfieldMigrationSteps(recommendedShape, proposedPublicProvides, detectedEntrypoints);
+  const patchGuidance = buildBrownfieldPatchGuidance(recommendedShape, detectedEntrypoints, proposedPublicProvides, !!manifest);
   const heuristicNotes = [
     "Heuristic: this planner inspects repo files on disk and infers likely capabilities from names, scripts, handlers, and bootstrap wiring.",
     "Heuristic: existing commands and scripts are treated as projections candidates, not as the protocol contract itself.",
@@ -580,6 +590,7 @@ export async function planBrownfieldMigration(
     capabilityMap,
     reuseRecommendations,
     migrationSteps,
+    patchGuidance,
     heuristicNotes,
     manualFollowUps,
     confidence: capabilityMap.length > 6 ? "medium" : "high",
@@ -1254,6 +1265,14 @@ export async function validateCertifiedNode(
       });
     }
 
+    if (!bootstrapAnalysis.hasEnsureProtocolAgentProjectionOnSessionStart) {
+      violations.push({
+        rule: "bootstrap.ensure-protocol-projection.session-start",
+        message: "Extension bootstrap does not ensure the protocol projection inside session_start",
+        suggestedFix: "Call ensureProtocolAgentProjection(pi, fabric) inside a session_start handler so the protocol tool is available on runtime startup.",
+      });
+    }
+
     if (!bootstrapAnalysis.hasRegisterProtocolNodeCall) {
       violations.push({
         rule: "bootstrap.register-node",
@@ -1664,6 +1683,56 @@ function buildBrownfieldMigrationSteps(
     { phase: 2, title: "Map capabilities to protocol provides", goal: "Turn existing behavior into a compact protocol contract before writing migration code.", recommendedFiles: ["pi.protocol.json", "protocol/handlers.ts"], notes: [recommendedShape === "collaborating-pair" ? "Split orchestration and worker responsibilities." : "Prefer one node unless the repo already has a clear split."] },
     { phase: 3, title: "Wire bootstrap and command projections", goal: "Preserve existing behavior while exposing Pi-native entrypoints.", recommendedFiles: ["extensions/index.ts", "scripts"], notes: ["Keep standard protocol projection behavior intact."] },
     { phase: 4, title: "Validate and tighten", goal: "Run validation/tests and only then consider deeper automation.", recommendedFiles: ["TODO.md", "CHANGELOG.md"], notes: [`Begin with ${provides.length} proposed public provide(s).`] },
+  ];
+}
+
+function buildBrownfieldPatchGuidance(
+  recommendedShape: "single-node" | "collaborating-pair",
+  detectedEntrypoints: string[],
+  provides: ScaffoldProvideInput[],
+  hasManifest: boolean,
+): BrownfieldRepoPatchGuidanceEntry[] {
+  return [
+    {
+      file: "pi.protocol.json",
+      action: hasManifest ? "adapt" : "create",
+      rationale: "Keep the protocol manifest compact and aligned to current public capabilities before deeper rewrites.",
+      starterPatch: [
+        "set nodeId and purpose from the repo's existing user-facing intent",
+        `start with ${provides.slice(0, 3).map((provide) => provide.name).join(", ") || "one public provide"}`,
+        "keep internal prompts and implementation details out of the public manifest",
+      ],
+    },
+    {
+      file: detectedEntrypoints.includes("protocol/handlers.ts") ? "protocol/handlers.ts" : "protocol/",
+      action: detectedEntrypoints.includes("protocol/handlers.ts") ? "adapt" : "create",
+      rationale: "Wrap or adapt existing deterministic code behind typed public handlers instead of rewriting behavior first.",
+      starterPatch: [
+        "preserve current business logic and move protocol shaping to handler boundaries",
+        recommendedShape === "collaborating-pair"
+          ? "separate orchestration handlers from worker handlers before adding cross-node delegation"
+          : "keep one node until the repo clearly needs a manager/worker split",
+      ],
+    },
+    {
+      file: detectedEntrypoints.includes("extensions/index.ts") ? "extensions/index.ts" : "extensions/index.ts",
+      action: detectedEntrypoints.includes("extensions/index.ts") ? "adapt" : "create",
+      rationale: "Certified-node bootstrap should join the shared fabric, ensure the protocol projection, and register on session_start.",
+      starterPatch: [
+        "call ensureProtocolFabric(pi) during activation",
+        "call ensureProtocolAgentProjection(pi, fabric) during session_start",
+        "registerProtocolNode(...) on session_start and unregister on session_shutdown",
+      ],
+    },
+    {
+      file: "README.md",
+      action: "review",
+      rationale: "Keep operator-facing docs aligned with the public protocol surface and any retained command projections.",
+      starterPatch: [
+        "document which existing commands remain as projections",
+        "document which provides are public versus internal",
+      ],
+    },
   ];
 }
 
@@ -2937,6 +3006,7 @@ function analyzeSourceAst(filePath: string, source: string): SourceAstAnalysis {
 function analyzeExtensionBootstrap(sourceFile: ts.SourceFile): ExtensionBootstrapAnalysis {
   let hasEnsureProtocolFabricCall = false;
   let hasEnsureProtocolAgentProjectionCall = false;
+  let hasEnsureProtocolAgentProjectionOnSessionStart = false;
   let hasRegisterProtocolNodeCall = false;
   let hasSessionStartRegistration = false;
   let hasSessionShutdownUnregister = false;
@@ -2954,8 +3024,13 @@ function analyzeExtensionBootstrap(sourceFile: ts.SourceFile): ExtensionBootstra
         hasRegisterProtocolNodeCall = true;
       }
 
-      if (isPiEventRegistration(node, "session_start") && callbackContainsCall(node.arguments[1], "registerProtocolNode")) {
-        hasSessionStartRegistration = true;
+      if (isPiEventRegistration(node, "session_start")) {
+        if (callbackContainsCall(node.arguments[1], "registerProtocolNode")) {
+          hasSessionStartRegistration = true;
+        }
+        if (callbackContainsCall(node.arguments[1], "ensureProtocolAgentProjection")) {
+          hasEnsureProtocolAgentProjectionOnSessionStart = true;
+        }
       }
 
       if (
@@ -2974,6 +3049,7 @@ function analyzeExtensionBootstrap(sourceFile: ts.SourceFile): ExtensionBootstra
   return {
     hasEnsureProtocolFabricCall,
     hasEnsureProtocolAgentProjectionCall,
+    hasEnsureProtocolAgentProjectionOnSessionStart,
     hasRegisterProtocolNodeCall,
     hasSessionStartRegistration,
     hasSessionShutdownUnregister,

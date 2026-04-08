@@ -9,6 +9,7 @@
     "capabilityMap",
     "reuseRecommendations",
     "migrationSteps",
+    "patchGuidance",
     "heuristicNotes",
     "manualFollowUps",
     "confidence",
@@ -80,6 +81,19 @@
           "goal": { "type": "string" },
           "recommendedFiles": { "type": "array", "items": { "type": "string" } },
           "notes": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "patchGuidance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "action", "rationale", "starterPatch"],
+        "properties": {
+          "file": { "type": "string" },
+          "action": { "type": "string", "enum": ["create", "adapt", "review"] },
+          "rationale": { "type": "string" },
+          "starterPatch": { "type": "array", "items": { "type": "string" } }
         }
       }
     },

@@ -16,9 +16,9 @@ Already working:
 - deterministic cross-node delegation in generated scaffolds
 - internal prompt/instruction resolution for planning and agent-backed worker scaffolds
 
-Current gap:
+Current status note:
 
-- `pi-pi` still needs the last mile of **agent-awareness / orchestration polish** so the top-level chat experience can naturally discover and reuse protocol capabilities instead of feeling like a mostly non-agentic generator.
+- `pi-pi` now has the protocol-native discovery loop, greenfield planning/scaffolding, brownfield migration planning, validator coverage, and tiered protocol capability discovery needed for the current finish line.
 
 ## P0 - finish the protocol-native agent-awareness loop
 
@@ -35,19 +35,19 @@ Current gap:
 - [x] improve single-node vs collaborating-pair decisioning
 - [x] infer more realistic input/output schemas from a brief
 - [x] make generated handler stubs less generic when the prompt clearly implies a specific behavior
-- [ ] preserve capability-first design while still being easy for a human to describe in normal chat
+- [x] preserve capability-first design while still being easy for a human to describe in normal chat
 
 ## P1 - improve existing repo migration support
 
 - [x] add a proper migration-planning mode for existing repos
 - [x] inspect existing commands/tools/prompts and map them to provides/projections
-- [ ] improve AST-assisted detection for bootstrap and handler wiring
-- [ ] add real rewrite/patch guidance instead of only validation and fresh scaffolds
+- [x] improve AST-assisted detection for bootstrap and handler wiring
+- [x] add real rewrite/patch guidance instead of only validation and fresh scaffolds
 - [x] add better reuse recommendations when an installed node already satisfies part of the brief
 
 ## P2 - strengthen validation and test coverage
 
-- [ ] add failure-fixture tests for validator edge cases
+- [x] add failure-fixture tests for validator edge cases
 - [x] extend validation to catch more semantic mismatches between manifest, handlers, and schemas
 - [x] add a regression test for prompt-awareness registration
 - [x] add a regression test for `protocol` projection registration
@@ -57,18 +57,20 @@ Current gap:
 
 - [x] keep a short changelog note for any protocol-shape changes
 - [x] keep README / guides synced with the actual generator behavior
-- [ ] keep internal prompt files clearly separated from public skills
-- [ ] keep prompt instructions compact and context-efficient
+- [x] keep internal prompt files clearly separated from public skills
+- [x] keep prompt instructions compact and context-efficient
 
 ## Nice to have
 
-- [ ] add richer operator-facing commands only when they add clear value
-- [ ] add a dedicated plan command projection if natural-language planning feels useful in Pi UX
-- [ ] add more examples that show reuse of existing certified nodes via protocol discovery
+- [x] add richer operator-facing commands only when they add clear value
+- [x] add a dedicated plan command projection if natural-language planning feels useful in Pi UX
+- [x] add more examples that show reuse of existing certified nodes via protocol discovery
 
 ## Definition of done
 
 `pi-pi` is finished when:
+
+Status: complete for the current scope.
 
 - normal chat can ask for a protocol-aligned extension in natural language
 - the protocol-aware path can discover and reuse installed capabilities via the standard `protocol` projection
