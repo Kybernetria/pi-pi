@@ -1592,7 +1592,11 @@ function createProtocolTool(
             }),
           ),
           routing: Type.Optional(
-            Type.Union([Type.Literal("deterministic"), Type.Literal("best-match")]),
+            Type.Union([
+              Type.Literal("deterministic"),
+              Type.Literal("best-match"),
+              Type.Literal("local"),
+            ]),
           ),
           modelHint: Type.Optional(
             Type.Object({
@@ -1665,26 +1669,35 @@ function parseProtocolToolInput(input: ProtocolToolInput): ProtocolToolRequest {
       };
 
     case "invoke": {
-      if (!input.request?.provide?.trim()) {
-        throw new Error("protocol tool action invoke requires request.provide");
+      const request = input.request ?? {};
+      const providedProvide = request.provide?.trim() || input.provide?.trim();
+      if (!providedProvide) {
+        throw new Error("protocol tool action invoke requires request.provide or provide");
       }
-      const normalizedProvide = normalizeRequestedProvideName(
-        input.request.provide,
-        input.request.target?.nodeId,
-      );
+
+      const providedNodeId = request.target?.nodeId?.trim() || input.nodeId?.trim();
+      const normalizedProvide = normalizeRequestedProvideName(providedProvide, providedNodeId);
+      const routingMode = request.routing as RoutingMode | "local" | undefined;
+      const normalizedRouting =
+        routingMode === "local"
+          ? "deterministic"
+          : routingMode === "best-match" || routingMode === "deterministic"
+            ? routingMode
+            : undefined;
+
       return {
         action: "invoke",
         request: {
           provide: normalizedProvide.provide,
-          input: input.request.input,
+          input: request.input,
           target: {
-            ...input.request.target,
-            nodeId: normalizedProvide.nodeId ?? input.request.target?.nodeId,
+            ...request.target,
+            nodeId: normalizedProvide.nodeId ?? providedNodeId,
           },
-          routing: input.request.routing,
-          modelHint: input.request.modelHint,
-          budget: input.request.budget,
-          handoff: input.request.handoff,
+          routing: normalizedRouting,
+          modelHint: request.modelHint,
+          budget: request.budget,
+          handoff: request.handoff,
         },
       };
     }

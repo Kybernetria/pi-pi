@@ -163,6 +163,24 @@ async function main(): Promise<void> {
   assert.ok(qualifiedProvideText.includes("provide pi-pi.build_certified_extension"));
   assert.ok(qualifiedProvideText.includes("schema note: string schema paths are relative to the providing node package"));
 
+  const legacyShapeRepo = await mkdtemp(path.join(os.tmpdir(), "pi-pi-regression-legacy-shape-"));
+  const legacyShapeInvokeResult = await protocolTool?.execute?.("tool-call-2c", {
+    action: "invoke",
+    nodeId: "pi-pi",
+    provide: "pi-pi.build_certified_extension",
+    request: {
+      input: {
+        description: "Build a certified extension that summarizes markdown notes and also offers a local command.",
+        repoDir: legacyShapeRepo,
+        applyChanges: false,
+      },
+      routing: "local",
+      handoff: { opaque: true },
+    },
+  });
+  const legacyShapeInvokeText = legacyShapeInvokeResult?.content?.[0]?.text ?? "";
+  assert.ok(legacyShapeInvokeText.includes('"ok": true'));
+
   const internalSelfInvoke = await fabric.invoke({
     callerNodeId: "pi-pi",
     provide: "plan_extension_from_brief",
