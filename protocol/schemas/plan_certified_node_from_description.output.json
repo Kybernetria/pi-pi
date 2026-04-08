@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "required": [
+    "brief",
+    "recommendedShape",
+    "suggestedPackageName",
+    "suggestedNodeId",
+    "suggestedPurpose",
+    "candidateProvides",
+    "operatorCommandProjectionSuggested",
+    "agentBackedInternalsRecommended",
+    "recommendedWorkerMode",
+    "assumptions",
+    "clarificationNotes",
+    "internalInstruction"
+  ],
+  "properties": {
+    "brief": { "type": "string" },
+    "recommendedShape": {
+      "type": "string",
+      "enum": ["single-node", "collaborating-pair"]
+    },
+    "suggestedPackageName": { "type": "string" },
+    "suggestedNodeId": { "type": "string" },
+    "suggestedPurpose": { "type": "string" },
+    "candidateProvides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "version": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "effects": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "operatorCommandProjectionSuggested": { "type": "boolean" },
+    "agentBackedInternalsRecommended": { "type": "boolean" },
+    "recommendedWorkerMode": {
+      "type": "string",
+      "enum": ["deterministic", "agent-backed"]
+    },
+    "assumptions": { "type": "array", "items": { "type": "string" } },
+    "clarificationNotes": { "type": "array", "items": { "type": "string" } },
+    "internalInstruction": {
+      "type": "object",
+      "required": ["pathUsed", "fallbackUsed"],
+      "properties": {
+        "pathUsed": { "type": "string" },
+        "fallbackUsed": { "type": "boolean" }
+      }
+    },
+    "singleNodeScaffoldInput": { "type": "object" },
+    "collaboratingNodesScaffoldInput": { "type": "object" }
+  }
+}

@@ -11,6 +11,7 @@ import {
 import activate from "../extensions/index.ts";
 import type {
   DescribeCertifiedTemplateOutput,
+  PlanCertifiedNodeFromDescriptionOutput,
   ScaffoldCertifiedNodeOutput,
   ScaffoldCollaboratingNodesOutput,
   ValidateCertifiedNodeOutput,
@@ -157,6 +158,17 @@ async function main(): Promise<void> {
   });
   printSection("describe_certified_template", describe);
 
+  const plan = await invokeTyped<PlanCertifiedNodeFromDescriptionOutput>(fabric, {
+    callerNodeId: "demo-runner",
+    provide: "plan_certified_node_from_description",
+    target: { nodeId: "pi-pi" },
+    input: {
+      description:
+        "Build me a certified extension that summarizes markdown notes in the workspace and also gives me a local command.",
+    },
+  });
+  printSection("plan_certified_node_from_description", plan);
+
   const scaffold = await invokeTyped<ScaffoldCertifiedNodeOutput>(fabric, {
     callerNodeId: "demo-runner",
     provide: "scaffold_certified_node",
@@ -253,6 +265,10 @@ async function main(): Promise<void> {
   });
 
   await runtime.runCommand("pi-pi-template", JSON.stringify({ includeCommandExamples: true }));
+  await runtime.runCommand(
+    "pi-pi-plan",
+    "Build me a manager/worker certified pair where the manager delegates research tasks to a worker.",
+  );
 
   const commandTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-command-"));
   await runtime.runCommand(

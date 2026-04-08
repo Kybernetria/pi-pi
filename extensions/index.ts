@@ -11,6 +11,8 @@ import {
 import manifest from "../pi.protocol.json" with { type: "json" };
 import type {
   DescribeCertifiedTemplateOutput,
+  PlanCertifiedNodeFromDescriptionInput,
+  PlanCertifiedNodeFromDescriptionOutput,
   ScaffoldCertifiedNodeInput,
   ScaffoldCertifiedNodeOutput,
   ScaffoldCollaboratingNodesInput,
@@ -35,6 +37,10 @@ type PiRuntime = ExtensionAPI &
   ProtocolSessionPi & {
     registerCommand?: (name: string, command: RegisteredCommand) => void;
   };
+
+interface PiPiPlanCommandEnvelope {
+  input?: PlanCertifiedNodeFromDescriptionInput;
+}
 
 interface PiPiNewCommandEnvelope {
   destinationDir?: string;
@@ -91,6 +97,27 @@ function parseValidateCommandInput(args: string | undefined): ValidateCertifiedN
   return { packageDir: trimmed };
 }
 
+function parsePlanCommandInput(
+  args: string | undefined,
+): PlanCertifiedNodeFromDescriptionInput | Record<string, unknown> {
+  const trimmed = args?.trim();
+  if (!trimmed) {
+    return { description: "" };
+  }
+
+  if (!trimmed.startsWith("{")) {
+    return { description: trimmed };
+  }
+
+  const parsed = parseJsonArgs(trimmed);
+  if (!isRecord(parsed)) {
+    return { description: "" };
+  }
+
+  const envelope = parsed as PiPiPlanCommandEnvelope & Record<string, unknown>;
+  return isRecord(envelope.input) ? (envelope.input as PlanCertifiedNodeFromDescriptionInput) : envelope;
+}
+
 function parseNewCommandInput(
   args: string | undefined,
 ): { destinationDir?: string; input: ScaffoldCertifiedNodeInput | Record<string, unknown> } {
@@ -135,9 +162,9 @@ async function writeFiles(rootDir: string, files: Record<string, string>): Promi
 
 export default function activate(pi: PiRuntime) {
   const fabric = ensureProtocolFabric(pi);
-  ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
 
   pi.on("session_start", async () => {
+    ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
     if (!fabric.describe(manifest.nodeId)) {
       registerProtocolNode(pi, fabric, {
         manifest,
@@ -164,6 +191,23 @@ export default function activate(pi: PiRuntime) {
         const result = await invokeSelf<DescribeCertifiedTemplateOutput>(
           fabric,
           "describe_certified_template",
+          input,
+        );
+        notifyResult(ctx, result);
+      } catch (error) {
+        ctx.ui.notify(toErrorMessage(error), "error");
+      }
+    },
+  });
+
+  pi.registerCommand?.("pi-pi-plan", {
+    description: "Interpret a natural-language extension brief into a scaffold-ready certified-node plan",
+    handler: async (args, ctx) => {
+      try {
+        const input = parsePlanCommandInput(args);
+        const result = await invokeSelf<PlanCertifiedNodeFromDescriptionOutput>(
+          fabric,
+          "plan_certified_node_from_description",
           input,
         );
         notifyResult(ctx, result);

@@ -41,6 +41,32 @@ export interface DescribeCertifiedTemplateOutput {
   notes: string[];
 }
 
+export interface PlanCertifiedNodeFromDescriptionInput {
+  description: string;
+  preferCollaboration?: boolean;
+  includeInstructionDebug?: boolean;
+}
+
+export interface PlanCertifiedNodeFromDescriptionOutput {
+  brief: string;
+  recommendedShape: "single-node" | "collaborating-pair";
+  suggestedPackageName: string;
+  suggestedNodeId: string;
+  suggestedPurpose: string;
+  candidateProvides: ScaffoldProvideInput[];
+  operatorCommandProjectionSuggested: boolean;
+  agentBackedInternalsRecommended: boolean;
+  recommendedWorkerMode: CollaboratingWorkerMode;
+  assumptions: string[];
+  clarificationNotes: string[];
+  internalInstruction: {
+    pathUsed: string;
+    fallbackUsed: boolean;
+  };
+  singleNodeScaffoldInput?: ScaffoldCertifiedNodeInput;
+  collaboratingNodesScaffoldInput?: ScaffoldCollaboratingNodesInput;
+}
+
 export interface ScaffoldProvideInput {
   name: string;
   description: string;
@@ -211,7 +237,7 @@ export async function describeCertifiedTemplate(
     requiredDirectories: ["extensions", "protocol", "protocol/schemas"],
     requiredRuntimeBehaviors: [
       "call ensureProtocolFabric(pi) during extension activation",
-      "call ensureProtocolAgentProjection(pi, fabric) during extension activation",
+      "call ensureProtocolAgentProjection(pi, fabric) during session_start or equivalent runtime startup",
       "register with the shared fabric on session_start",
       "unregister from the shared fabric on session_shutdown",
       "prefer ctx.delegate.invoke() for recursive cross-node delegation",
@@ -219,6 +245,7 @@ export async function describeCertifiedTemplate(
     ],
     toolingProvides: [
       "describe_certified_template",
+      "plan_certified_node_from_description",
       "scaffold_certified_node",
       "scaffold_collaborating_nodes",
       "validate_certified_node",
@@ -234,6 +261,7 @@ export async function describeCertifiedTemplate(
     commandExamples: input.includeCommandExamples
       ? [
           "/pi-pi-template",
+          '/pi-pi-plan Build me a certified extension that summarizes markdown notes and also offers a local command.',
           '/pi-pi-new {"packageName":"pi-hello","nodeId":"pi-hello","purpose":"Greets users","provides":[{"name":"say_hello","description":"Return a greeting."}]}',
           '/pi-pi-new-pair {"managerPackageName":"pi-manager","managerNodeId":"pi-manager","workerPackageName":"pi-worker","workerNodeId":"pi-worker","managerProvideName":"delegate_task","workerProvideName":"do_task","workerMode":"deterministic"}',
           "/pi-pi-validate ./packages/pi-hello",
@@ -241,6 +269,7 @@ export async function describeCertifiedTemplate(
       : [],
     notes: [
       "scaffold_certified_node is a pure generation provide that returns a file plan and file contents.",
+      "plan_certified_node_from_description is a pure planning provide that turns a natural-language brief into scaffold-ready structured output.",
       "scaffold_collaborating_nodes is a pure generation provide that returns two package plans and their file contents.",
       "Certified package bootstrap should ensure both the shared fabric and the standard protocol projection.",
       "ctx.delegate is the preferred bound delegation surface for recursive cross-node calls because trace, caller, and budget context stay attached automatically.",
@@ -249,6 +278,171 @@ export async function describeCertifiedTemplate(
       "Commands and tools are projections over the protocol, not the protocol itself.",
       `validate_certified_node currently uses ${VALIDATION_MODE} checks rather than full semantic validation.`,
     ],
+  };
+}
+
+export async function planCertifiedNodeFromDescription(
+  input: PlanCertifiedNodeFromDescriptionInput,
+): Promise<PlanCertifiedNodeFromDescriptionOutput> {
+  validatePlanningInput(input);
+
+  const brief = normalizeWhitespace(input.description);
+  const instruction = await resolveInternalInstruction(
+    "plan-certified-node-from-description",
+    ["interpret-extension-brief.md"],
+  );
+  const policy = derivePlanningPolicy(instruction.content);
+  const lowerBrief = brief.toLowerCase();
+  const operatorCommandProjectionSuggested = mentionsAny(lowerBrief, [
+    "slash command",
+    "command",
+    "operator",
+    "local use",
+    "cli",
+  ]);
+
+  const pairRecommended =
+    input.preferCollaboration === true ||
+    mentionsAny(lowerBrief, [
+      "collaborating pair",
+      "manager/worker",
+      "manager worker",
+      "pair of nodes",
+      "delegate",
+      "delegates",
+      "delegation",
+      "planner/executor",
+      "planner executor",
+    ]);
+
+  const agentBackedInternalsRecommended = mentionsAny(lowerBrief, [
+    "agent-backed",
+    "agent backed",
+    "llm",
+    "research",
+    "reasoning",
+    "synthesis",
+    "synthesize",
+    "creative",
+  ]);
+
+  const recommendedWorkerMode: CollaboratingWorkerMode =
+    agentBackedInternalsRecommended && !policy.deterministicFirstOnlyWhenExplicitlyAbsent
+      ? "agent-backed"
+      : agentBackedInternalsRecommended
+        ? "agent-backed"
+        : "deterministic";
+
+  const assumptions: string[] = [];
+  const clarificationNotes: string[] = [];
+  const baseName = inferBaseNameFromBrief(lowerBrief);
+
+  if (policy.prefersSingleNodeByDefault && !pairRecommended) {
+    assumptions.push("Defaulted to a single certified node because the brief did not strongly require cross-node delegation.");
+  }
+
+  if (!mentionsAny(lowerBrief, ["other nodes", "callable", "public provide", "protocol"])) {
+    assumptions.push("Assumed the package should still expose at least one public provide so it remains capability-first.");
+  }
+
+  if (operatorCommandProjectionSuggested) {
+    assumptions.push("Included an operator-facing command projection suggestion because the brief mentioned command/operator use.");
+  }
+
+  if (agentBackedInternalsRecommended) {
+    assumptions.push("Agent-backed internals were recommended because the brief suggests reasoning, research, or generative behavior.");
+  } else if (policy.deterministicFirstOnlyWhenExplicitlyAbsent) {
+    assumptions.push("Preferred deterministic internals first because the internal planning instruction says to default to deterministic designs when practical.");
+  }
+
+  if (pairRecommended) {
+    const managerProvideName = inferManagerProvideName(lowerBrief);
+    const workerProvideName = inferWorkerProvideName(lowerBrief);
+    const collaboratingNodesScaffoldInput: ScaffoldCollaboratingNodesInput = {
+      managerPackageName: `pi-${baseName}-manager`,
+      managerNodeId: `pi-${baseName}-manager`,
+      workerPackageName: `pi-${baseName}-worker`,
+      workerNodeId: `pi-${baseName}-worker`,
+      managerProvideName,
+      workerProvideName,
+      workerMode: recommendedWorkerMode,
+      generateInternalPromptFiles: recommendedWorkerMode === "agent-backed",
+      generateDebugCommands: operatorCommandProjectionSuggested,
+      strictTypes: true,
+    };
+
+    if (!mentionsAny(lowerBrief, ["manager", "worker", "pair", "delegate"])) {
+      clarificationNotes.push("A collaborating pair was chosen because preferCollaboration was requested, but the brief itself did not explicitly describe manager/worker boundaries.");
+    }
+
+    return {
+      brief,
+      recommendedShape: "collaborating-pair",
+      suggestedPackageName: collaboratingNodesScaffoldInput.managerPackageName,
+      suggestedNodeId: collaboratingNodesScaffoldInput.managerNodeId,
+      suggestedPurpose: `Coordinate ${baseName.replaceAll("-", " ")} work through a manager/worker protocol pair.`,
+      candidateProvides: [
+        {
+          name: managerProvideName,
+          description: `Delegate structured ${baseName.replaceAll("-", " ")} work to a collaborating worker node.`,
+        },
+        {
+          name: workerProvideName,
+          description:
+            recommendedWorkerMode === "agent-backed"
+              ? `Perform ${baseName.replaceAll("-", " ")} work with agent-backed internal behavior while keeping the public provide typed.`
+              : `Perform ${baseName.replaceAll("-", " ")} work deterministically and return typed output.`,
+        },
+      ],
+      operatorCommandProjectionSuggested,
+      agentBackedInternalsRecommended,
+      recommendedWorkerMode,
+      assumptions,
+      clarificationNotes,
+      internalInstruction: {
+        pathUsed: instruction.relativePath,
+        fallbackUsed: instruction.fallbackUsed,
+      },
+      collaboratingNodesScaffoldInput,
+    };
+  }
+
+  const provideName = inferSingleProvideName(lowerBrief);
+  const singleNodeScaffoldInput: ScaffoldCertifiedNodeInput = {
+    packageName: `pi-${baseName}`,
+    nodeId: `pi-${baseName}`,
+    purpose: inferSingleNodePurpose(lowerBrief, baseName),
+    provides: [
+      {
+        name: provideName,
+        description: inferSingleProvideDescription(lowerBrief, provideName),
+      },
+    ],
+    generateDebugCommands: operatorCommandProjectionSuggested,
+    strictTypes: true,
+  };
+
+  if (mentionsAny(lowerBrief, ["pair", "delegate", "worker"])) {
+    clarificationNotes.push("The brief hints at delegation, but this MVP planner still kept the recommendation single-node because the separation of responsibilities was not explicit enough.");
+  }
+
+  return {
+    brief,
+    recommendedShape: "single-node",
+    suggestedPackageName: singleNodeScaffoldInput.packageName,
+    suggestedNodeId: singleNodeScaffoldInput.nodeId,
+    suggestedPurpose: singleNodeScaffoldInput.purpose,
+    candidateProvides: singleNodeScaffoldInput.provides,
+    operatorCommandProjectionSuggested,
+    agentBackedInternalsRecommended,
+    recommendedWorkerMode,
+    assumptions,
+    clarificationNotes,
+    internalInstruction: {
+      pathUsed: instruction.relativePath,
+      fallbackUsed: instruction.fallbackUsed,
+    },
+    singleNodeScaffoldInput,
   };
 }
 
@@ -811,7 +1005,7 @@ export async function validateCertifiedNode(
       violations.push({
         rule: "bootstrap.ensure-protocol-projection",
         message: "Extension bootstrap does not call ensureProtocolAgentProjection",
-        suggestedFix: "Call ensureProtocolAgentProjection(pi, fabric) during activation.",
+        suggestedFix: "Call ensureProtocolAgentProjection(pi, fabric) during session_start or equivalent runtime startup.",
       });
     }
 
@@ -892,6 +1086,9 @@ export async function validateCertifiedNode(
 export const describe_certified_template: ProtocolHandler = async (_ctx, input) =>
   describeCertifiedTemplate((input ?? {}) as TemplateDescribeInput);
 
+export const plan_certified_node_from_description: ProtocolHandler = async (_ctx, input) =>
+  planCertifiedNodeFromDescription(input as PlanCertifiedNodeFromDescriptionInput);
+
 export const scaffold_certified_node: ProtocolHandler = async (_ctx, input) =>
   scaffoldCertifiedNode(input as ScaffoldCertifiedNodeInput);
 
@@ -900,6 +1097,24 @@ export const scaffold_collaborating_nodes: ProtocolHandler = async (_ctx, input)
 
 export const validate_certified_node: ProtocolHandler = async (_ctx, input) =>
   validateCertifiedNode(input as ValidateCertifiedNodeInput);
+
+function validatePlanningInput(input: PlanCertifiedNodeFromDescriptionInput): void {
+  if (!input || typeof input !== "object") {
+    throw protocolError("INVALID_INPUT", "plan_certified_node_from_description requires an input object");
+  }
+
+  if (!input.description?.trim()) {
+    throw protocolError("INVALID_INPUT", "description is required");
+  }
+
+  if (input.preferCollaboration !== undefined && typeof input.preferCollaboration !== "boolean") {
+    throw protocolError("INVALID_INPUT", "preferCollaboration must be boolean when provided");
+  }
+
+  if (input.includeInstructionDebug !== undefined && typeof input.includeInstructionDebug !== "boolean") {
+    throw protocolError("INVALID_INPUT", "includeInstructionDebug must be boolean when provided");
+  }
+}
 
 function validateScaffoldInput(input: ScaffoldCertifiedNodeInput): void {
   if (!input || typeof input !== "object") {
@@ -1020,6 +1235,149 @@ function validateCollaboratingNodesInput(input: ScaffoldCollaboratingNodesInput)
     throw protocolError("INVALID_INPUT", "generateInternalPromptFiles must be boolean when provided");
   }
 }
+
+interface ResolvedInternalInstruction {
+  absolutePath: string;
+  relativePath: string;
+  content: string;
+  fallbackUsed: boolean;
+}
+
+interface PlanningPolicy {
+  prefersSingleNodeByDefault: boolean;
+  deterministicFirstOnlyWhenExplicitlyAbsent: boolean;
+}
+
+async function resolveInternalInstruction(
+  taskBaseName: string,
+  aliases: string[] = [],
+): Promise<ResolvedInternalInstruction> {
+  const candidates = [`${taskBaseName}.md`, ...aliases, "default.md"];
+
+  for (const candidate of candidates) {
+    const absolutePath = path.resolve("protocol", "instructions", candidate);
+    if (await exists(absolutePath)) {
+      return {
+        absolutePath,
+        relativePath: path.relative(process.cwd(), absolutePath).replaceAll(path.sep, "/"),
+        content: await fs.readFile(absolutePath, "utf8"),
+        fallbackUsed: candidate === "default.md",
+      };
+    }
+  }
+
+  throw protocolError(
+    "EXECUTION_FAILED",
+    `No internal instruction file found for ${taskBaseName}. Expected protocol/instructions/${taskBaseName}.md or protocol/instructions/default.md`,
+  );
+}
+
+function derivePlanningPolicy(instructionText: string): PlanningPolicy {
+  const lowerInstruction = instructionText.toLowerCase();
+  return {
+    prefersSingleNodeByDefault:
+      lowerInstruction.includes("default to:") || lowerInstruction.includes("one certified node"),
+    deterministicFirstOnlyWhenExplicitlyAbsent:
+      lowerInstruction.includes("deterministic first") || lowerInstruction.includes("prefer deterministic code first"),
+  };
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function mentionsAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
+}
+
+function inferBaseNameFromBrief(brief: string): string {
+  if (mentionsAny(brief, ["markdown", "notes"])) return "notes-planner";
+  if (mentionsAny(brief, ["summary", "summarize"])) return "summarizer";
+  if (mentionsAny(brief, ["research"])) return "research";
+  if (mentionsAny(brief, ["validate", "validation"])) return "validator";
+  if (mentionsAny(brief, ["search"])) return "search";
+
+  const tokens = brief
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 4)
+    .filter((token) => !COMMON_BRIEF_STOPWORDS.has(token))
+    .slice(0, 2);
+
+  return tokens.length > 0 ? tokens.join("-") : "planned-node";
+}
+
+function inferSingleProvideName(brief: string): string {
+  if (mentionsAny(brief, ["markdown", "notes"]) && mentionsAny(brief, ["summary", "summarize"])) {
+    return "summarize_notes";
+  }
+  if (mentionsAny(brief, ["search"]) && mentionsAny(brief, ["notes", "docs", "documents"])) {
+    return "search_notes";
+  }
+  if (mentionsAny(brief, ["validate", "validation"])) {
+    return "validate_package";
+  }
+  return "handle_request";
+}
+
+function inferSingleProvideDescription(brief: string, provideName: string): string {
+  if (provideName === "summarize_notes") {
+    return "Summarize markdown notes or similar workspace text into a typed protocol response.";
+  }
+  if (provideName === "search_notes") {
+    return "Search workspace notes and return typed matches or summaries.";
+  }
+  if (provideName === "validate_package") {
+    return "Validate a target package or repo request and return a typed assessment.";
+  }
+  return `Handle the described capability from the brief: ${normalizeWhitespace(brief).slice(0, 120)}.`;
+}
+
+function inferSingleNodePurpose(brief: string, baseName: string): string {
+  if (mentionsAny(brief, ["markdown", "notes"]) && mentionsAny(brief, ["summary", "summarize"])) {
+    return "Summarizes markdown notes through a TypeScript-first certified protocol package.";
+  }
+  if (mentionsAny(brief, ["search"])) {
+    return "Searches a target knowledge domain through a TypeScript-first certified protocol package.";
+  }
+  return `Implements ${baseName.replaceAll("-", " ")} through a TypeScript-first certified protocol package.`;
+}
+
+function inferManagerProvideName(brief: string): string {
+  if (mentionsAny(brief, ["research"])) return "delegate_research";
+  return "delegate_task";
+}
+
+function inferWorkerProvideName(brief: string): string {
+  if (mentionsAny(brief, ["research"])) return "perform_research";
+  if (mentionsAny(brief, ["summary", "summarize"])) return "do_summary";
+  return "do_task";
+}
+
+const COMMON_BRIEF_STOPWORDS = new Set([
+  "build",
+  "create",
+  "make",
+  "extension",
+  "package",
+  "certified",
+  "protocol",
+  "typed",
+  "other",
+  "through",
+  "should",
+  "would",
+  "could",
+  "local",
+  "simple",
+  "public",
+  "provide",
+  "command",
+  "commands",
+  "operator",
+  "facing",
+  "users",
+  "user",
+]);
 
 function createStarterSchemas(provide: ScaffoldProvideInput): {
   inputSchema: JSONSchemaLite;
@@ -1224,9 +1582,9 @@ import manifest from "../pi.protocol.json" with { type: "json" };
 import * as handlers from "../protocol/handlers.ts";${debugBlock}
 export default function activate(pi: ExtensionAPI) {
   const fabric = ensureProtocolFabric(pi);
-  ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
 
   pi.on("session_start", async () => {
+    ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
     if (!fabric.describe(manifest.nodeId)) {
       registerProtocolNode(pi, fabric, {
         manifest,

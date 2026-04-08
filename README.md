@@ -6,7 +6,7 @@ It follows the protocol itself:
 
 - ships `pi.protocol.json`
 - ensures the shared protocol fabric during activation
-- ensures the batteries-included standard `protocol` projection during activation
+- ensures the batteries-included standard `protocol` projection during runtime startup
 - registers with the shared protocol fabric on `session_start`
 - exposes canonical protocol `provides`
 - offers Pi commands as projections of those same provides
@@ -17,6 +17,7 @@ It follows the protocol itself:
 ## Provides
 
 - `describe_certified_template`
+- `plan_certified_node_from_description`
 - `scaffold_certified_node`
 - `scaffold_collaborating_nodes`
 - `validate_certified_node`
@@ -24,12 +25,14 @@ It follows the protocol itself:
 ## Pi commands
 
 - `/pi-pi-template`
+- `/pi-pi-plan`
 - `/pi-pi-new`
 - `/pi-pi-new-pair`
 - `/pi-pi-validate`
 
 Important separation:
 
+- `plan_certified_node_from_description` is a pure planning provide. It turns a natural-language brief into scaffold-ready structured output.
 - `scaffold_certified_node` is a pure generation provide. It returns a file plan and file contents.
 - `scaffold_collaborating_nodes` is a pure generation provide. It returns two package plans and grouped file contents.
 - `/pi-pi-new` and `/pi-pi-new-pair` are operator-facing projections. If you pass `destinationDir`, they write generated files to disk.
@@ -61,12 +64,15 @@ They are intentionally **not** generated as public Pi skills.
 
 `pi-pi` may use internal non-discoverable instruction text for interpreting natural-language extension briefs.
 
-Current internal instruction location:
+Current internal instruction locations:
 
-- `protocol/instructions/interpret-extension-brief.md`
+- `protocol/instructions/plan-certified-node-from-description.md`
+- fallback: `protocol/instructions/default.md`
+- compatibility alias: `protocol/instructions/interpret-extension-brief.md`
 
-This is internal guidance for planning and generation behavior.
-It is not intended to be exposed as a public skill by default.
+The planning path resolves a task-specific internal instruction first and falls back to the default instruction file when needed.
+These files are internal guidance for planning and generation behavior.
+They are not intended to be exposed as public skills by default.
 
 Reference/example prompt guidance for humans lives at:
 
@@ -93,6 +99,7 @@ It does **not** yet do full semantic validation.
 ## Runtime model notes
 
 - certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
+- in real Pi runtimes, projection/tool registration should happen during `session_start` or equivalent runtime startup, not raw extension loading
 - the standard `protocol` tool is a projection over the protocol, not the protocol itself
 - `ctx.delegate` is the preferred bound recursive delegation surface because trace, caller, budget, and depth context stay attached automatically
 - direct `ctx.fabric.invoke(...)` can still exist in low-level code, but generated collaborating scaffolds now prefer `ctx.delegate.invoke(...)`
@@ -129,12 +136,13 @@ The demo verifies that:
 2. `pi-pi` ensures the standard `protocol` projection
 3. `pi-pi` validates itself successfully
 4. `pi-pi` can describe the certified template
-5. `pi-pi` can scaffold a TypeScript certified-node template
-6. generated bootstrap includes `ensureProtocolAgentProjection(...)`
-7. `pi-pi` can scaffold a collaborating manager/worker pair
-8. generated packages validate successfully
-9. generated manager handlers call workers through `ctx.delegate.invoke()`
-10. command projections remain aligned with the protocol handlers
+5. `pi-pi` can interpret a natural-language brief into a structured plan using internal instruction files
+6. `pi-pi` can scaffold a TypeScript certified-node template
+7. generated bootstrap includes `ensureProtocolAgentProjection(...)`
+8. `pi-pi` can scaffold a collaborating manager/worker pair
+9. generated packages validate successfully
+10. generated manager handlers call workers through `ctx.delegate.invoke()`
+11. command projections remain aligned with the protocol handlers
 
 For an end-to-end generated-pair runtime proof, also run:
 
@@ -199,6 +207,7 @@ Then start Pi in the target project and reload if needed:
 Try:
 
 - `/pi-pi-template`
+- `/pi-pi-plan Build me a certified extension that summarizes markdown notes and also offers a local command.`
 - `/pi-pi-new { ...json input... }`
 - `/pi-pi-new-pair { ...json input... }`
 - `/pi-pi-validate ./some-generated-package`

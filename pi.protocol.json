@@ -15,6 +15,16 @@
       "outputSchema": "./protocol/schemas/describe_certified_template.output.json"
     },
     {
+      "name": "plan_certified_node_from_description",
+      "description": "Interpret a natural-language extension brief into a structured scaffold-ready certified-node plan using internal non-public instruction files.",
+      "handler": "plan_certified_node_from_description",
+      "version": "1.0.0",
+      "tags": ["plan", "brief", "generator"],
+      "effects": ["file_read"],
+      "inputSchema": "./protocol/schemas/plan_certified_node_from_description.input.json",
+      "outputSchema": "./protocol/schemas/plan_certified_node_from_description.output.json"
+    },
+    {
       "name": "scaffold_certified_node",
       "description": "Generate a TypeScript-first protocol-certified node package template from structured input.",
       "handler": "scaffold_certified_node",
