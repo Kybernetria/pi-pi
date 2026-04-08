@@ -35,8 +35,8 @@ For `build_certified_extension`, `repoDir` can be omitted when the current worki
 Current public builder surface:
 
 - `build_certified_extension`
-- `validate_certified_extension`
-- `describe_certified_template`
+
+Validation and template description are internal helper surfaces and are not part of normal public discovery.
 
 Reuse-or-stop rule:
 

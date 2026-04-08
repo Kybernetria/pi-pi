@@ -17,8 +17,6 @@ It is itself a certified node and keeps the model capability-first:
 `pi-pi` exposes only:
 
 - `build_certified_extension`
-- `validate_certified_extension`
-- `describe_certified_template`
 
 Everything else is internal.
 
@@ -26,6 +24,8 @@ Everything else is internal.
 
 These remain available only as internal implementation stages inside the node:
 
+- `describe_certified_template`
+- `validate_certified_extension`
 - `plan_extension_from_brief`
 - `plan_existing_repo_migration`
 - `scaffold_extension`
@@ -39,9 +39,7 @@ The standard `protocol` projection hides those internals by default.
 
 Operator-facing projections stay small too:
 
-- `/pi-pi-template`
 - `/pi-pi-build-certified-extension`
-- `/pi-pi-validate-certified-extension`
 
 ## Builder behavior
 
@@ -105,6 +103,8 @@ It should **not** discover `pi-pi` and then improvise a non-certified local fall
 
 If you are already working in the target repository, you can omit `repoDir` and let `pi-pi` use the current working directory.
 
+Validation and template description are internal helper surfaces and are not part of the normal public discovery flow.
+
 ```json
 {
   "action": "invoke",
@@ -123,20 +123,9 @@ If you are already working in the target repository, you can omit `repoDir` and 
 }
 ```
 
-### 4. Validate explicitly if needed
+### 4. Validation happens internally
 
-```json
-{
-  "action": "invoke",
-  "request": {
-    "provide": "validate_certified_extension",
-    "target": { "nodeId": "pi-pi" },
-    "input": {
-      "packageDir": "./packages/pi-notes"
-    }
-  }
-}
-```
+`build_certified_extension` validates the result before success, so manual validation is an internal implementation detail rather than a normal public step.
 
 ## Local development
 
@@ -161,7 +150,7 @@ The demo proves that:
 2. the `protocol` tool is installed automatically
 3. the public builder surface is small
 4. a fresh repo can be built through `build_certified_extension`
-5. the resulting package validates through `validate_certified_extension`
+5. the resulting package is validated internally before the build succeeds
 6. internal planning/scaffold stages stay hidden from public discovery
 
 ## Notes for generated-package authoring

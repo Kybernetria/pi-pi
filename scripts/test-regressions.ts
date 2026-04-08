@@ -136,9 +136,9 @@ async function main(): Promise<void> {
 
   const nodeResult = await protocolTool?.execute?.("tool-call-2", { action: "describe_node", nodeId: "pi-pi" });
   const nodeText = nodeResult?.content?.[0]?.text ?? "";
-  assert.ok(nodeText.includes("describe_certified_template"));
   assert.ok(nodeText.includes("build_certified_extension"));
-  assert.ok(nodeText.includes("validate_certified_extension"));
+  assert.ok(!nodeText.includes("describe_certified_template"));
+  assert.ok(!nodeText.includes("validate_certified_extension"));
   assert.ok(!nodeText.includes("plan_extension_from_brief"));
 
   const qualifiedProvideResult = await protocolTool?.execute?.("tool-call-2b", {
@@ -149,16 +149,6 @@ async function main(): Promise<void> {
   const qualifiedProvideText = qualifiedProvideResult?.content?.[0]?.text ?? "";
   assert.ok(qualifiedProvideText.includes("provide pi-pi.build_certified_extension"));
   assert.ok(qualifiedProvideText.includes("schema note: string schema paths are relative to the providing node package"));
-
-  const qualifiedInvokeResult = await protocolTool?.execute?.("tool-call-2c", {
-    action: "invoke",
-    request: {
-      provide: "pi-pi.describe_certified_template",
-      input: {},
-    },
-  });
-  const qualifiedInvokeText = qualifiedInvokeResult?.content?.[0]?.text ?? "";
-  assert.ok(qualifiedInvokeText.includes('"ok": true'));
 
   const internalSelfInvoke = await fabric.invoke({
     callerNodeId: "pi-pi",

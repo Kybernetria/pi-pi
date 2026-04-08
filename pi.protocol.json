@@ -9,7 +9,8 @@
       "description": "Describe the expected TypeScript package structure and required runtime behaviors for a protocol-certified package template.",
       "handler": "describe_certified_template",
       "version": "1.0.0",
-      "tags": ["template", "describe"],
+      "visibility": "internal",
+      "tags": ["template", "describe", "internal"],
       "effects": ["file_read"],
       "inputSchema": "./protocol/schemas/describe_certified_template.input.json",
       "outputSchema": "./protocol/schemas/describe_certified_template.output.json"
@@ -29,7 +30,8 @@
       "description": "Validate a candidate package directory against the current Pi Protocol certification rules and return a compact certification summary.",
       "handler": "validate_certified_extension",
       "version": "1.0.0",
-      "tags": ["validate", "compliance", "certified"],
+      "visibility": "internal",
+      "tags": ["validate", "compliance", "certified", "internal"],
       "effects": ["file_read"],
       "inputSchema": "./protocol/schemas/validate_certified_extension.input.json",
       "outputSchema": "./protocol/schemas/validate_certified_extension.output.json"

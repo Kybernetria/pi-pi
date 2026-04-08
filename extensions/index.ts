@@ -13,9 +13,6 @@ import manifest from "../pi.protocol.json" with { type: "json" };
 import type {
   BuildCertifiedExtensionInput,
   BuildCertifiedExtensionOutput,
-  DescribeCertifiedTemplateOutput,
-  ValidateCertifiedNodeInput,
-  ValidateCertifiedNodeOutput,
 } from "../protocol/core.ts";
 import * as handlers from "../protocol/handlers.ts";
 
@@ -71,22 +68,6 @@ async function invokeSelf<TOutput>(
   })) as ProtocolInvokeResult<TOutput>;
 }
 
-function parseValidateCommandInput(
-  args: string | undefined,
-): ValidateCertifiedNodeInput | Record<string, unknown> {
-  const trimmed = args?.trim();
-  if (!trimmed) {
-    return { packageDir: "." };
-  }
-
-  if (trimmed.startsWith("{")) {
-    const parsed = parseJsonArgs(trimmed);
-    return isRecord(parsed) ? parsed : {};
-  }
-
-  return { packageDir: trimmed };
-}
-
 function parseBuildCommandInput(
   args: string | undefined,
 ): BuildCertifiedExtensionInput | Record<string, unknown> {
@@ -135,23 +116,6 @@ export default function activate(pi: PiRuntime) {
     }
   });
 
-  pi.registerCommand?.("pi-pi-template", {
-    description: "Describe the TypeScript Pi Protocol certified package template",
-    handler: async (args, ctx) => {
-      try {
-        const input = parseJsonArgs(args, {});
-        const result = await invokeSelf<DescribeCertifiedTemplateOutput>(
-          fabric,
-          "describe_certified_template",
-          input,
-        );
-        notifyResult(ctx, result);
-      } catch (error) {
-        ctx.ui.notify(toErrorMessage(error), "error");
-      }
-    },
-  });
-
   pi.registerCommand?.("pi-pi-build-certified-extension", {
     description:
       "Build a protocol-certified package in the target repo, validate it before success, and keep the workflow on the certified builder path.",
@@ -161,23 +125,6 @@ export default function activate(pi: PiRuntime) {
         const result = await invokeSelf<BuildCertifiedExtensionOutput>(
           fabric,
           "build_certified_extension",
-          input,
-        );
-        notifyResult(ctx, result);
-      } catch (error) {
-        ctx.ui.notify(toErrorMessage(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand?.("pi-pi-validate-certified-extension", {
-    description: "Validate a protocol-certified package directory and return a compact certification summary",
-    handler: async (args, ctx) => {
-      try {
-        const input = parseValidateCommandInput(args);
-        const result = await invokeSelf<ValidateCertifiedNodeOutput>(
-          fabric,
-          "validate_certified_extension",
           input,
         );
         notifyResult(ctx, result);

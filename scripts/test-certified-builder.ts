@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   assert.equal(nodeResult.ok, true);
   assert.deepEqual(
     nodeResult.node?.provides?.map((provide) => provide.name),
-    ["describe_certified_template", "build_certified_extension", "validate_certified_extension"],
+    ["build_certified_extension"],
     "fresh-session public surface should stay small",
   );
 
@@ -125,18 +125,6 @@ async function main(): Promise<void> {
       freshBuild.result?.output?.packages[0]?.provides.includes("summarize_notes"),
     "fresh repo with only harmless root files should stay on the greenfield builder path",
   );
-
-  const freshValidation = (await invokeProtocolTool(runtimeA, {
-    action: "invoke",
-    request: {
-      provide: "validate_certified_extension",
-      target: { nodeId: "pi-pi" },
-      input: { packageDir: freshRepo },
-    },
-  })) as { ok: boolean; result?: { ok: boolean; output?: { pass: boolean } } };
-  assert.equal(freshValidation.ok, true);
-  assert.equal(freshValidation.result?.ok, true);
-  assert.equal(freshValidation.result?.output?.pass, true);
 
   const cwdRepo = await mkdtemp(path.join(os.tmpdir(), "pi-pi-cwd-builder-"));
   const previousCwd = process.cwd();

@@ -37,9 +37,11 @@ Make Pi Protocol and `pi-pi` behave like a robust, batteries-included, protocol-
 
 ### Public provides to keep
 - [x] `build_certified_extension`
+- [x] do **not** expose `build_certified_extension_pair` publicly unless a strong reason emerges later
+
+### Internal helper surfaces to keep hidden
 - [x] `validate_certified_extension`
 - [x] `describe_certified_template`
-- [x] do **not** expose `build_certified_extension_pair` publicly unless a strong reason emerges later
 
 ### Low-level provides to move internal
 - [x] `plan_extension_from_brief`
@@ -270,7 +272,7 @@ Make Pi Protocol and `pi-pi` behave like a robust, batteries-included, protocol-
 
 Implemented so far:
 
-- `pi-pi` public surface reduced to `build_certified_extension`, `validate_certified_extension`, and `describe_certified_template`
+- `pi-pi` public surface reduced to `build_certified_extension`; `validate_certified_extension` and `describe_certified_template` remain internal helper surfaces
 - planning/scaffold/migration/alias stages moved behind internal visibility
 - runtime/SDK gained native `ctx.handoff.run(...)` with bound trace/budget/depth/delegate context
 - handoff now emits a compact visible indicator plus separate structured detail records for collapsed/expanded disclosure, with exported indicator/detail shapes for host reuse

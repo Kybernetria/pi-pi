@@ -361,9 +361,7 @@ export async function describeCertifiedTemplate(
     checklist: CERTIFICATION_CHECKLIST,
     commandExamples: input.includeCommandExamples
       ? [
-          "/pi-pi-template",
           '/pi-pi-build-certified-extension {"description":"Build me a certified extension that summarizes markdown notes and also offers a local command.","repoDir":"./packages/pi-notes","applyChanges":true}',
-          "/pi-pi-validate-certified-extension ./packages/pi-notes",
         ]
       : [],
     notes: [
@@ -373,7 +371,7 @@ export async function describeCertifiedTemplate(
       "ctx.delegate is the preferred bound delegation surface for recursive cross-node calls because trace, caller, and budget context stay attached automatically.",
       "Node-local handoff is available natively in the runtime and keeps cross-node result boundaries opaque by default.",
       "Commands and tools are projections over the protocol, not the protocol itself.",
-      `validate_certified_extension currently uses ${VALIDATION_MODE} checks rather than full semantic validation.`,
+      `Internal validation helper surfaces still use ${VALIDATION_MODE} checks rather than full semantic validation.`,
     ],
   };
 }

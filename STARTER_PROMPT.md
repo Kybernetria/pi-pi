@@ -43,10 +43,8 @@ Primary tasks:
 
 Target public surface:
 - `build_certified_extension`
-- `validate_certified_extension`
-- optional `describe_certified_template`
 
-Everything else should be internal unless there is a strong reason otherwise.
+Validation and template description remain internal helper surfaces unless a strong reason emerges later.
 
 Required end-state:
 - a normal chat agent can discover `pi-pi`

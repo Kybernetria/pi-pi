@@ -9,11 +9,7 @@ import {
   type ProtocolSessionPi,
 } from "../vendor/pi-protocol-sdk.ts";
 import activate from "../extensions/index.ts";
-import type {
-  BuildCertifiedExtensionOutput,
-  DescribeCertifiedTemplateOutput,
-  ValidateCertifiedNodeOutput,
-} from "../protocol/core.ts";
+import type { BuildCertifiedExtensionOutput } from "../protocol/core.ts";
 
 interface Notification {
   level: string;
@@ -142,14 +138,6 @@ async function main(): Promise<void> {
     protocolToolRegistered: runtime.getAllTools().some((tool) => tool.name === "protocol"),
   });
 
-  const describe = await invokeTyped<DescribeCertifiedTemplateOutput>(fabric, {
-    callerNodeId: "demo-runner",
-    provide: "describe_certified_template",
-    target: { nodeId: "pi-pi" },
-    input: { includeCommandExamples: true },
-  });
-  printSection("describe_certified_template", describe);
-
   const freshRepo = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-demo-builder-"));
   const build = await invokeTyped<BuildCertifiedExtensionOutput>(fabric, {
     callerNodeId: "demo-runner",
@@ -164,15 +152,6 @@ async function main(): Promise<void> {
   });
   printSection("build_certified_extension", build);
 
-  const validate = await invokeTyped<ValidateCertifiedNodeOutput>(fabric, {
-    callerNodeId: "demo-runner",
-    provide: "validate_certified_extension",
-    target: { nodeId: "pi-pi" },
-    input: { packageDir: freshRepo },
-  });
-  printSection("validate_certified_extension", validate);
-
-  await runtime.runCommand("pi-pi-template", JSON.stringify({ includeCommandExamples: true }));
   await runtime.runCommand(
     "pi-pi-build-certified-extension",
     JSON.stringify({
@@ -181,7 +160,6 @@ async function main(): Promise<void> {
       applyChanges: true,
     }),
   );
-  await runtime.runCommand("pi-pi-validate-certified-extension", freshRepo);
 
   printSection(
     "command-notifications",
