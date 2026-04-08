@@ -228,6 +228,8 @@ async function main(): Promise<void> {
   const prompt = await runtime.runBeforeAgentStart("Build me a capability if needed.", "BASE");
   assert.equal(prompt.split(PROMPT_AWARENESS_MARKER).length - 1, 1);
   assert.ok(prompt.includes("If discovery finds a matching public builder provide"));
+  assert.ok(prompt.includes("Canonical invoke shape"));
+  assert.ok(prompt.includes("Do not prefix the provide with the nodeId"));
   assert.ok(prompt.includes("do not freestyle a non-certified fallback") || prompt.includes("non-certified local fallback"));
 
   console.log("protocol projection and internal-visibility regressions passed");

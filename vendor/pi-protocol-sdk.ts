@@ -1249,6 +1249,8 @@ function renderProtocolPromptAwareness(toolName: string): string {
 - If discovery finds a matching public builder provide, invoke it and keep the work on that certified path.
 - If a matching builder provide fails or is insufficient, stop and surface that failure explicitly instead of improvising a non-certified local fallback.
 - Use tiered discovery: start with the compact node-level registry, then inspect likely nodes with \`describe_node\`, then inspect exact contracts with \`describe_provide\`.
+- Canonical invoke shape: {"action":"invoke","request":{"provide":"<provide>","target":{"nodeId":"<nodeId>"},"input":{...}}}
+- Do not prefix the provide with the nodeId; put the node in request.target.nodeId.
 - If no installed capability fits for an extension-building request, stop and surface that failure explicitly instead of silently creating files locally.
 - When the registry is large, prefer \`find_provides\` over scanning the full registry dump.`;
 }
@@ -1501,6 +1503,10 @@ function formatProtocolProvideResult(provide: ProtocolProvideDescription): strin
     lines.push("schema note: string schema paths are relative to the providing node package, not the caller cwd");
   }
 
+  lines.push(
+    `invoke: {"action":"invoke","request":{"provide":${JSON.stringify(provide.name)},"target":{"nodeId":${JSON.stringify(provide.nodeId)}},"input":{...}}}`,
+  );
+
   return lines.join("\n");
 }
 
@@ -1557,6 +1563,8 @@ function createProtocolTool(
       "Start with {\"action\":\"registry\"} when you want a concise node-level capability catalog.",
       "Use tiered discovery: registry -> describe_node -> describe_provide -> invoke.",
       "If the registry looks large, switch to find_provides by name or tags instead of scanning every available provide.",
+      "Canonical invoke shape: { action: 'invoke', request: { provide, target: { nodeId }, input } }",
+      "Do not prefix the provide with the nodeId; put the node in request.target.nodeId.",
       "If discovery finds a matching public builder provide, invoke it and do not freestyle a non-certified fallback afterward.",
       "If no installed capability fits for an extension-building request, stop and surface that failure explicitly instead of silently creating files locally.",
       "Prefer deterministic target.nodeId when known. If multiple public providers match and no target is specified, expect ambiguity.",
