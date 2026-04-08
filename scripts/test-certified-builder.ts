@@ -138,6 +138,40 @@ async function main(): Promise<void> {
   assert.equal(freshValidation.result?.ok, true);
   assert.equal(freshValidation.result?.output?.pass, true);
 
+  const cwdRepo = await mkdtemp(path.join(os.tmpdir(), "pi-pi-cwd-builder-"));
+  const previousCwd = process.cwd();
+  await writeFile(path.join(cwdRepo, "LICENSE"), "MIT\n", "utf8");
+  process.chdir(cwdRepo);
+  try {
+    const cwdBuild = (await invokeProtocolTool(runtimeA, {
+      action: "invoke",
+      request: {
+        provide: "build_certified_extension",
+        target: { nodeId: "pi-pi" },
+        input: {
+          description: "Build me a certified extension that summarizes markdown notes and offers a local command.",
+          applyChanges: true,
+        },
+      },
+    })) as {
+      ok: boolean;
+      result?: {
+        ok: boolean;
+        output?: {
+          status: string;
+          repoDir: string;
+        };
+      };
+    };
+
+    assert.equal(cwdBuild.ok, true);
+    assert.equal(cwdBuild.result?.ok, true);
+    assert.equal(cwdBuild.result?.output?.status, "certified");
+    assert.equal(cwdBuild.result?.output?.repoDir, cwdRepo);
+  } finally {
+    process.chdir(previousCwd);
+  }
+
   await runtimeA.emit("session_shutdown", { reason: "done-a" });
   resetProtocolGlobals();
 

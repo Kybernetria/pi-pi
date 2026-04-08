@@ -1,12 +1,12 @@
 {
   "type": "object",
-  "required": ["repoDir"],
+  "required": [],
   "properties": {
     "description": { "type": "string" },
     "brief": { "type": "string" },
     "repoDir": {
       "type": "string",
-      "description": "Repository or package directory that should receive the certified build."
+      "description": "Repository or package directory that should receive the certified build. Defaults to the current working directory when omitted."
     },
     "replaceExisting": { "type": "boolean" },
     "applyChanges": { "type": "boolean" },

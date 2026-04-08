@@ -14,6 +14,7 @@ When useful, mention:
 - whether it should remain deterministic or use agent-backed internals
 - whether it should be one node or a collaborating pair
 - whether internal orchestration should use native node-local handoff with a compact visible indicator and separate structured detail records
+- whether the current workspace is the target repoDir, so the builder can be invoked directly without hunting for schema paths
 
 ## Example brief
 
@@ -28,6 +29,8 @@ When useful, mention:
 The public contract is still typed protocol provides.
 
 If internal orchestration is needed, keep the compact result boundary separate from expanded handoff details and keep `opaque` as the default boundary when appropriate.
+
+For `build_certified_extension`, `repoDir` can be omitted when the current working directory is the target repository.
 
 Current public builder surface:
 

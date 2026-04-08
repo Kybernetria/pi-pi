@@ -50,7 +50,7 @@ export interface DescribeCertifiedTemplateOutput {
 export interface BuildCertifiedExtensionInput {
   description?: string;
   brief?: string;
-  repoDir: string;
+  repoDir?: string;
   replaceExisting?: boolean;
   applyChanges?: boolean;
   allowPair?: boolean;
@@ -1407,11 +1407,15 @@ async function buildCertifiedExtensionWithRuntime(
   validateBuildCertifiedExtensionInput(input);
 
   const description = normalizeBuildCertifiedExtensionDescription(input);
-  const repoDir = path.resolve(input.repoDir);
+  const repoDir = path.resolve(input.repoDir?.trim() || process.cwd());
   const applyChanges = input.applyChanges ?? true;
   const allowPair = input.allowPair ?? false;
   const repoState = await classifyCertifiedBuildRepo(repoDir);
   const assumptions: string[] = [];
+
+  if (!input.repoDir?.trim()) {
+    assumptions.push("repoDir defaulted to the current working directory.");
+  }
 
   if (repoState.kind === "brownfield" && input.replaceExisting !== true) {
     throw protocolError(
@@ -1609,8 +1613,8 @@ function validateBuildCertifiedExtensionInput(input: BuildCertifiedExtensionInpu
     throw protocolError("INVALID_INPUT", "description or brief is required");
   }
 
-  if (!input.repoDir?.trim()) {
-    throw protocolError("INVALID_INPUT", "repoDir is required");
+  if (input.repoDir !== undefined && !input.repoDir.trim()) {
+    throw protocolError("INVALID_INPUT", "repoDir must be a non-empty string when provided");
   }
 
   if (input.replaceExisting !== undefined && typeof input.replaceExisting !== "boolean") {

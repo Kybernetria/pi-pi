@@ -103,6 +103,8 @@ It should **not** discover `pi-pi` and then improvise a non-certified local fall
 
 ### 3. Invoke the authoritative builder
 
+If you are already working in the target repository, you can omit `repoDir` and let `pi-pi` use the current working directory.
+
 ```json
 {
   "action": "invoke",
