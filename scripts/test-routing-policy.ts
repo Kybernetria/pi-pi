@@ -72,6 +72,11 @@ async function main(): Promise<void> {
     classifyProtocolRoutingIntent("Build a URL summarizer extension that reuses existing capabilities if available."),
     "protocol-first",
   );
+  assert.equal(classifyProtocolRoutingIntent("Delete the extension that was created in this repo."), "protocol-first");
+  assert.equal(
+    classifyProtocolRoutingIntent("Remove the generated file and replace it with a protocol-aware version."),
+    "protocol-first",
+  );
   assert.equal(
     classifyProtocolRoutingIntent("Integrate a new command into an existing repo and migrate the bootstrap wiring."),
     "protocol-first",
@@ -87,8 +92,12 @@ async function main(): Promise<void> {
   });
 
   const prompt = await runtime.runBeforeAgentStart("Build me a URL summarizer extension.", "BASE");
-  assert.ok(prompt.includes("Route simple questions and quick lookups directly"));
-  assert.ok(prompt.includes("For build, modify, integrate, migrate, validate, or reuse requests"));
+  assert.ok(prompt.includes("Route simple questions, explanations, and quick lookups directly"));
+  assert.ok(
+    prompt.includes(
+      "For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses code",
+    ),
+  );
   assert.ok(prompt.includes("If no installed capability fits, proceed directly"));
   assert.ok(prompt.includes("Use tiered discovery: start with the compact node-level registry"));
 

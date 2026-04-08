@@ -64,16 +64,20 @@ async function main(): Promise<void> {
     "before_agent_start should inject the protocol-awareness helper into real AgentSession turns",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("For build, modify, integrate, migrate, validate, or reuse requests"),
-    "top-level chat path should be nudged toward protocol discovery for complex requests",
+    effectiveSystemPrompt.includes("For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses code"),
+    "top-level chat path should be nudged toward protocol discovery for code-changing requests",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("Route simple questions and quick lookups directly"),
+    effectiveSystemPrompt.includes("Route simple questions, explanations, and quick lookups directly"),
     "prompt-awareness helper should tell the agent to skip protocol for simple requests",
   );
   assert.ok(
     effectiveSystemPrompt.includes("Use tiered discovery: start with the compact node-level registry"),
     "prompt-awareness helper should explain the node-first tiered discovery path",
+  );
+  assert.ok(
+    effectiveSystemPrompt.includes("If no installed capability fits, proceed directly"),
+    "prompt-awareness helper should still allow direct fallback when discovery finds nothing",
   );
 
   console.log("real AgentSession protocol discoverability passed");

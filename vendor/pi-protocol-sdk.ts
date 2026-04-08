@@ -18,12 +18,15 @@ const PROTOCOL_ROUTING_COMPLEX_HINTS = [
   "modify",
   "update",
   "change",
-  "extend",
+  "edit",
+  "delete",
+  "remove",
+  "replace",
+  "rewrite",
   "refactor",
   "integrate",
   "migrate",
   "reuse",
-  "replace",
   "scaffold",
   "inspect repo",
   "existing repo",
@@ -1104,11 +1107,11 @@ export function classifyProtocolRoutingIntent(prompt: string): ProtocolRoutingIn
 
 function renderProtocolPromptAwareness(toolName: string): string {
   return `${PROTOCOL_PROMPT_AWARENESS_MARKER}
-- Route simple questions and quick lookups directly; do not force protocol discovery when it is unnecessary.
-- For build, modify, integrate, migrate, validate, or reuse requests, check \`${toolName}\` first for matching installed public provides before generating new code.
+- Route simple questions, explanations, and quick lookups directly; do not force protocol discovery when it is unnecessary.
+- For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses code, check \`${toolName}\` first for matching installed public provides before doing local work.
 - Prefer reusing and invoking discovered public provides when they already satisfy the request.
 - Use tiered discovery: start with the compact node-level registry, then inspect likely nodes with \`describe_node\`, then inspect exact contracts with \`describe_provide\`.
-- If no installed capability fits, proceed directly with generation or explanation instead of forcing a protocol match.
+- If no installed capability fits, proceed directly with generation, deletion, or explanation instead of forcing a protocol match.
 - When the registry is large, prefer \`find_provides\` over scanning the full registry dump.`;
 }
 
@@ -1347,7 +1350,7 @@ function createProtocolTool(
     promptGuidelines: [
       "Use this tool to discover Pi Protocol nodes and invoke public provides without needing one tool per provide.",
       "Valid actions are: registry, describe_node, describe_provide, find_provides, invoke.",
-      "Route simple questions directly; use protocol discovery first for build, modify, integrate, migrate, validate, or reuse requests.",
+      "Route simple questions directly; use protocol discovery first for any create, edit, delete, build, modify, integrate, migrate, validate, or reuse request.",
       "Start with {\"action\":\"registry\"} when you want a concise node-level capability catalog.",
       "Use tiered discovery: registry -> describe_node -> describe_provide -> invoke.",
       "If the registry looks large, switch to find_provides by name or tags instead of scanning every available provide.",
