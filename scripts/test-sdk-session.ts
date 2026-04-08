@@ -7,7 +7,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import activate from "../extensions/index.ts";
 
-const PROTOCOL_TOOL_SNIPPET = "protocol: discover and invoke public Pi Protocol provides through the shared fabric";
+const PROTOCOL_TOOL_SNIPPET = "protocol: list public provides, inspect protocol nodes/provides, and invoke them through the shared fabric";
 const PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
 
 async function main(): Promise<void> {

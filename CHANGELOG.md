@@ -8,3 +8,4 @@
 - upgraded generated single-node schemas and handler stubs for common capabilities such as search, summarization, validation, Q&A, task extraction, and classification
 - added regression and planning/scaffold verification scripts: `npm run test:regressions` and `npm run test:planning`
 - added `npm run test:sdk-session` to verify the standard `protocol` projection and prompt-awareness helper inside a real Pi SDK `AgentSession`
+- made `protocol` registry output concise and token-efficient so a plain `{ "action": "registry" }` call yields a compact catalog of available public provides

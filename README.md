@@ -106,6 +106,7 @@ It does **not** yet do full semantic validation.
 
 - certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
 - the standard `protocol` projection now also installs a tiny per-runtime prompt-awareness hook so top-level chat prefers protocol discovery/reuse before scaffolding new code
+- `protocol` registry output is intentionally concise and token-efficient so a plain registry call can act like a compact capability catalog
 - in real Pi runtimes, projection/tool registration should happen during `session_start` or equivalent runtime startup, not raw extension loading
 - the standard `protocol` tool is a projection over the protocol, not the protocol itself
 - `ctx.delegate` is the preferred bound recursive delegation surface because trace, caller, budget, and depth context stay attached automatically

@@ -1103,6 +1103,59 @@ export function ensureProtocolAgentProjection(
   return { toolName, registered: true };
 }
 
+function summarizeProtocolProvide(provide: ProtocolProvideSnapshot): string {
+  const qualifiers = [provide.tags?.length ? `tags:${provide.tags.join(",")}` : "", provide.effects?.length ? `effects:${provide.effects.join(",")}` : ""]
+    .filter(Boolean)
+    .join(" ");
+  return qualifiers.length > 0
+    ? `- ${provide.nodeId}.${provide.name} (${qualifiers})`
+    : `- ${provide.nodeId}.${provide.name}`;
+}
+
+function formatProtocolRegistryResult(registry: ProtocolRegistrySnapshot): string {
+  const publicProvides = registry.provides.filter((provide) => provide.visibility === "public");
+  const lines = [
+    `protocol registry v${registry.protocolVersion}`,
+    `nodes: ${registry.nodes.length}`,
+    `public provides: ${publicProvides.length}`,
+    "",
+    "available public provides:",
+  ];
+
+  for (const provide of publicProvides) {
+    lines.push(summarizeProtocolProvide(provide));
+  }
+
+  return lines.join("\n");
+}
+
+function formatProtocolFindProvidesResult(results: ProtocolProvideDescription[]): string {
+  if (results.length === 0) {
+    return "matching public provides: 0";
+  }
+
+  const lines = [`matching public provides: ${results.length}`];
+  for (const provide of results) {
+    lines.push(summarizeProtocolProvide(provide));
+  }
+  return lines.join("\n");
+}
+
+function formatProtocolToolContent(result: ProtocolToolResult): string {
+  if (!result.ok) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  switch (result.action) {
+    case "registry":
+      return formatProtocolRegistryResult(result.registry);
+    case "find_provides":
+      return formatProtocolFindProvidesResult(result.results);
+    default:
+      return JSON.stringify(result, null, 2);
+  }
+}
+
 function createProtocolTool(
   surface: ProtocolDelegationSurface,
   options: {
@@ -1117,9 +1170,11 @@ function createProtocolTool(
     description:
       options.description ??
       "Inspect the Pi Protocol registry and invoke public provides through the shared protocol fabric.",
-    promptSnippet: `${options.toolName}: discover and invoke public Pi Protocol provides through the shared fabric`,
+    promptSnippet: `${options.toolName}: list public provides, inspect protocol nodes/provides, and invoke them through the shared fabric`,
     promptGuidelines: [
       "Use this tool to discover Pi Protocol nodes and invoke public provides without needing one tool per provide.",
+      "Valid actions are: registry, describe_node, describe_provide, find_provides, invoke.",
+      "Start with {\"action\":\"registry\"} when you want a concise catalog of all available public provides.",
       "Prefer deterministic target.nodeId when known. If multiple public providers match and no target is specified, expect ambiguity.",
       "Treat provides as the canonical contract. Internal implementation may be deterministic or agent-backed.",
     ],
@@ -1183,7 +1238,7 @@ function createProtocolTool(
       const request = parseProtocolToolInput(input);
       const result = await handleProtocolToolRequest(surface, request);
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        content: [{ type: "text" as const, text: formatProtocolToolContent(result) }],
         details: {
           action: request.action,
           result,

@@ -11,6 +11,7 @@ const PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
 
 interface RegisteredTool {
   name: string;
+  execute?: (toolCallId: string, input: unknown) => Promise<{ content?: Array<{ type: string; text?: string }> }>;
 }
 
 type EventHandler = (payload?: unknown) => Promise<unknown> | unknown;
@@ -90,6 +91,18 @@ async function main(): Promise<void> {
 
   await runtimeA.emit("session_start", { reason: "regression-a-repeat" });
   assert.equal(runtimeA.countTool("protocol"), 1, "protocol tool should not duplicate on repeated session_start");
+
+  const protocolToolA = runtimeA.getAllTools().find((tool) => tool.name === "protocol");
+  assert.ok(protocolToolA?.execute, "protocol tool should expose an execute function");
+
+  const registryResult = await protocolToolA?.execute?.("tool-call-1", { action: "registry" });
+  const registryText = registryResult?.content?.[0]?.text ?? "";
+  assert.ok(registryText.includes("available public provides:"));
+  assert.ok(registryText.includes("- pi-pi.describe_certified_template"));
+  assert.ok(
+    !registryText.includes('"registry": {'),
+    "registry tool output should be concise text rather than the full nested JSON snapshot",
+  );
 
   const promptA = await runtimeA.runBeforeAgentStart("Build me a capability if needed.", "BASE");
   assert.equal(
