@@ -60,6 +60,12 @@ If agent-backed worker mode is selected, internal prompt files are generated und
 
 They are intentionally **not** generated as public Pi skills.
 
+## Living TODO
+
+For the current completion plan and overnight/session handoff notes, see:
+
+- `TODO.md`
+
 ## Internal generation guidance
 
 `pi-pi` may use internal non-discoverable instruction text for interpreting natural-language extension briefs.
@@ -99,6 +105,7 @@ It does **not** yet do full semantic validation.
 ## Runtime model notes
 
 - certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
+- the standard `protocol` projection now also installs a tiny per-runtime prompt-awareness hook so top-level chat prefers protocol discovery/reuse before scaffolding new code
 - in real Pi runtimes, projection/tool registration should happen during `session_start` or equivalent runtime startup, not raw extension loading
 - the standard `protocol` tool is a projection over the protocol, not the protocol itself
 - `ctx.delegate` is the preferred bound recursive delegation surface because trace, caller, budget, and depth context stay attached automatically
@@ -127,6 +134,8 @@ You can override that with `sdkDependency` in scaffold input if you want a diffe
 ```bash
 npm install
 npm run typecheck
+npm run test:planning
+npm run test:regressions
 npm run demo
 ```
 
@@ -134,15 +143,18 @@ The demo verifies that:
 
 1. `pi-pi` loads and registers in the fabric
 2. `pi-pi` ensures the standard `protocol` projection
+2.1. the projection path installs a tiny protocol-aware prompt helper without duplicating it across repeated startup hooks
 3. `pi-pi` validates itself successfully
 4. `pi-pi` can describe the certified template
 5. `pi-pi` can interpret a natural-language brief into a structured plan using internal instruction files
-6. `pi-pi` can scaffold a TypeScript certified-node template
-7. generated bootstrap includes `ensureProtocolAgentProjection(...)`
-8. `pi-pi` can scaffold a collaborating manager/worker pair
-9. generated packages validate successfully
-10. generated manager handlers call workers through `ctx.delegate.invoke()`
-11. command projections remain aligned with the protocol handlers
+6. planner heuristics infer richer candidate provides from plain text while staying capability-first
+7. `pi-pi` can scaffold a TypeScript certified-node template
+8. generated bootstrap includes `ensureProtocolAgentProjection(...)`
+9. `pi-pi` can scaffold a collaborating manager/worker pair
+10. generated packages validate successfully
+11. generated manager handlers call workers through `ctx.delegate.invoke()`
+12. scaffolded single-node handlers and schemas become more realistic when the brief clearly implies search, summary, validation, Q&A, task extraction, or classification behavior
+13. command projections remain aligned with the protocol handlers
 
 For an end-to-end generated-pair runtime proof, also run:
 

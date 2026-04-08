@@ -301,19 +301,18 @@ export async function planCertifiedNodeFromDescription(
     "cli",
   ]);
 
-  const pairRecommended =
-    input.preferCollaboration === true ||
-    mentionsAny(lowerBrief, [
-      "collaborating pair",
-      "manager/worker",
-      "manager worker",
-      "pair of nodes",
-      "delegate",
-      "delegates",
-      "delegation",
-      "planner/executor",
-      "planner executor",
-    ]);
+  const candidateProvides = inferCandidateProvidesFromBrief(lowerBrief);
+  const hasExplicitPairLanguage = mentionsAny(lowerBrief, [
+    "collaborating pair",
+    "manager/worker",
+    "manager worker",
+    "pair of nodes",
+    "delegate",
+    "delegates",
+    "delegation",
+    "planner/executor",
+    "planner executor",
+  ]);
 
   const agentBackedInternalsRecommended = mentionsAny(lowerBrief, [
     "agent-backed",
@@ -333,6 +332,15 @@ export async function planCertifiedNodeFromDescription(
         ? "agent-backed"
         : "deterministic";
 
+  const capabilityKinds = detectCapabilityKinds(lowerBrief);
+  const pairRecommended =
+    input.preferCollaboration === true ||
+    hasExplicitPairLanguage ||
+    (agentBackedInternalsRecommended &&
+      capabilityKinds.includes("search") &&
+      capabilityKinds.includes("summarize") &&
+      mentionsAny(lowerBrief, ["gather", "collect", "research", "synthesize", "synthesise", "findings"]));
+
   const assumptions: string[] = [];
   const clarificationNotes: string[] = [];
   const baseName = inferBaseNameFromBrief(lowerBrief);
@@ -347,6 +355,10 @@ export async function planCertifiedNodeFromDescription(
 
   if (operatorCommandProjectionSuggested) {
     assumptions.push("Included an operator-facing command projection suggestion because the brief mentioned command/operator use.");
+  }
+
+  if (candidateProvides.length > 1) {
+    assumptions.push("Inferred multiple candidate provides because the brief described more than one clear capability.");
   }
 
   if (agentBackedInternalsRecommended) {
@@ -407,17 +419,11 @@ export async function planCertifiedNodeFromDescription(
     };
   }
 
-  const provideName = inferSingleProvideName(lowerBrief);
   const singleNodeScaffoldInput: ScaffoldCertifiedNodeInput = {
     packageName: `pi-${baseName}`,
     nodeId: `pi-${baseName}`,
-    purpose: inferSingleNodePurpose(lowerBrief, baseName),
-    provides: [
-      {
-        name: provideName,
-        description: inferSingleProvideDescription(lowerBrief, provideName),
-      },
-    ],
+    purpose: inferSingleNodePurpose(lowerBrief, baseName, candidateProvides),
+    provides: candidateProvides,
     generateDebugCommands: operatorCommandProjectionSuggested,
     strictTypes: true,
   };
@@ -1290,9 +1296,32 @@ function mentionsAny(value: string, needles: string[]): boolean {
   return needles.some((needle) => value.includes(needle));
 }
 
+type InferredProvideKind =
+  | "summarize"
+  | "search"
+  | "validate"
+  | "extract_tasks"
+  | "answer"
+  | "classify"
+  | "generic";
+
+interface InferredProvideBlueprint {
+  kind: InferredProvideKind;
+  inputSchema: JSONSchemaLite;
+  outputSchema: JSONSchemaLite;
+}
+
+// These heuristics stay intentionally small and deterministic so the planner remains
+// protocol-first while still producing more realistic starter surfaces from normal chat.
 function inferBaseNameFromBrief(brief: string): string {
-  if (mentionsAny(brief, ["markdown", "notes"])) return "notes-planner";
-  if (mentionsAny(brief, ["summary", "summarize"])) return "summarizer";
+  const capabilityKinds = detectCapabilityKinds(brief);
+
+  if (mentionsAny(brief, ["markdown", "notes"])) {
+    return capabilityKinds.length > 1 ? "notes-workbench" : "notes-planner";
+  }
+  if (mentionsAny(brief, ["docs", "documents"])) {
+    return capabilityKinds.length > 1 ? "docs-workbench" : "docs-assistant";
+  }
   if (mentionsAny(brief, ["research"])) return "research";
   if (mentionsAny(brief, ["validate", "validation"])) return "validator";
   if (mentionsAny(brief, ["search"])) return "search";
@@ -1306,35 +1335,107 @@ function inferBaseNameFromBrief(brief: string): string {
   return tokens.length > 0 ? tokens.join("-") : "planned-node";
 }
 
-function inferSingleProvideName(brief: string): string {
-  if (mentionsAny(brief, ["markdown", "notes"]) && mentionsAny(brief, ["summary", "summarize"])) {
-    return "summarize_notes";
+function detectCapabilityKinds(brief: string): InferredProvideKind[] {
+  const detected = new Set<InferredProvideKind>();
+
+  if (mentionsAny(brief, ["summary", "summarize", "summarise"])) detected.add("summarize");
+  if (mentionsAny(brief, ["search", "find", "lookup", "grep", "research", "investigate"])) detected.add("search");
+  if (mentionsAny(brief, ["validate", "validation", "verify", "lint", "check"])) detected.add("validate");
+  if (mentionsAny(brief, ["todo", "todos", "task list", "tasks", "action items", "extract task"])) {
+    detected.add("extract_tasks");
   }
-  if (mentionsAny(brief, ["search"]) && mentionsAny(brief, ["notes", "docs", "documents"])) {
-    return "search_notes";
+  if (mentionsAny(brief, ["question", "questions", "answer", "q&a", "qa"])) detected.add("answer");
+  if (mentionsAny(brief, ["classify", "classification", "categorize", "categorise", "tagging", "tag text"])) {
+    detected.add("classify");
   }
-  if (mentionsAny(brief, ["validate", "validation"])) {
-    return "validate_package";
-  }
-  return "handle_request";
+
+  return detected.size > 0 ? [...detected] : ["generic"];
 }
 
-function inferSingleProvideDescription(brief: string, provideName: string): string {
-  if (provideName === "summarize_notes") {
-    return "Summarize markdown notes or similar workspace text into a typed protocol response.";
+function inferCandidateProvidesFromBrief(brief: string): ScaffoldProvideInput[] {
+  const kinds = detectCapabilityKinds(brief);
+  const results: ScaffoldProvideInput[] = [];
+  const seen = new Set<string>();
+
+  const pushProvide = (provide: ScaffoldProvideInput) => {
+    if (seen.has(provide.name)) return;
+    seen.add(provide.name);
+    results.push(provide);
+  };
+
+  for (const kind of kinds) {
+    switch (kind) {
+      case "summarize":
+        pushProvide({
+          name: mentionsAny(brief, ["markdown", "notes", "docs", "documents"]) ? "summarize_notes" : "summarize_content",
+          description: mentionsAny(brief, ["markdown", "notes", "docs", "documents"])
+            ? "Summarize markdown notes or similar workspace text into a typed protocol response."
+            : "Summarize supplied content into a typed protocol response.",
+        });
+        break;
+      case "search":
+        pushProvide({
+          name: mentionsAny(brief, ["markdown", "notes", "docs", "documents"]) ? "search_notes" : "search_content",
+          description: mentionsAny(brief, ["markdown", "notes", "docs", "documents"])
+            ? "Search workspace notes or docs and return typed matches."
+            : "Search supplied content sources and return typed matches.",
+        });
+        break;
+      case "validate":
+        pushProvide({
+          name: mentionsAny(brief, ["repo", "repository"]) ? "validate_repo" : "validate_package",
+          description: mentionsAny(brief, ["repo", "repository"])
+            ? "Validate a repository request and return typed findings."
+            : "Validate a target package or repo request and return a typed assessment.",
+        });
+        break;
+      case "extract_tasks":
+        pushProvide({
+          name: "extract_tasks",
+          description: "Extract actionable tasks or TODO items into a typed protocol response.",
+        });
+        break;
+      case "answer":
+        pushProvide({
+          name: mentionsAny(brief, ["markdown", "notes", "docs", "documents"]) ? "answer_questions" : "answer_question",
+          description: mentionsAny(brief, ["markdown", "notes", "docs", "documents"])
+            ? "Answer questions against notes or docs and return typed citations."
+            : "Answer a supplied question and return a typed response.",
+        });
+        break;
+      case "classify":
+        pushProvide({
+          name: "classify_text",
+          description: "Classify supplied text into typed categories.",
+        });
+        break;
+      case "generic":
+        pushProvide({
+          name: "handle_request",
+          description: `Handle the described capability from the brief: ${normalizeWhitespace(brief).slice(0, 120)}.`,
+        });
+        break;
+    }
   }
-  if (provideName === "search_notes") {
-    return "Search workspace notes and return typed matches or summaries.";
-  }
-  if (provideName === "validate_package") {
-    return "Validate a target package or repo request and return a typed assessment.";
-  }
-  return `Handle the described capability from the brief: ${normalizeWhitespace(brief).slice(0, 120)}.`;
+
+  return results.slice(0, 3);
 }
 
-function inferSingleNodePurpose(brief: string, baseName: string): string {
-  if (mentionsAny(brief, ["markdown", "notes"]) && mentionsAny(brief, ["summary", "summarize"])) {
+function inferSingleNodePurpose(brief: string, baseName: string, provides: ScaffoldProvideInput[]): string {
+  if (provides.some((provide) => provide.name === "summarize_notes")) {
     return "Summarizes markdown notes through a TypeScript-first certified protocol package.";
+  }
+  if (provides.some((provide) => provide.name === "search_notes")) {
+    return "Searches notes or docs through a TypeScript-first certified protocol package.";
+  }
+  if (provides.some((provide) => provide.name === "extract_tasks")) {
+    return "Extracts actionable tasks into typed protocol output through a TypeScript-first certified package.";
+  }
+  if (provides.some((provide) => provide.name.startsWith("validate_"))) {
+    return "Validates target inputs through a TypeScript-first certified protocol package.";
+  }
+  if (provides.some((provide) => provide.name.startsWith("answer_"))) {
+    return "Answers domain-specific questions through a TypeScript-first certified protocol package.";
   }
   if (mentionsAny(brief, ["search"])) {
     return "Searches a target knowledge domain through a TypeScript-first certified protocol package.";
@@ -1343,13 +1444,16 @@ function inferSingleNodePurpose(brief: string, baseName: string): string {
 }
 
 function inferManagerProvideName(brief: string): string {
-  if (mentionsAny(brief, ["research"])) return "delegate_research";
+  if (mentionsAny(brief, ["research", "search", "findings", "investigate"])) return "delegate_research";
+  if (mentionsAny(brief, ["summary", "summarize", "summarise"])) return "delegate_summary";
+  if (mentionsAny(brief, ["validate", "validation", "verify", "check"])) return "delegate_validation";
   return "delegate_task";
 }
 
 function inferWorkerProvideName(brief: string): string {
-  if (mentionsAny(brief, ["research"])) return "perform_research";
-  if (mentionsAny(brief, ["summary", "summarize"])) return "do_summary";
+  if (mentionsAny(brief, ["research", "search", "findings", "investigate"])) return "perform_research";
+  if (mentionsAny(brief, ["summary", "summarize", "summarise"])) return "perform_summary";
+  if (mentionsAny(brief, ["validate", "validation", "verify", "check"])) return "perform_validation";
   return "do_task";
 }
 
@@ -1379,43 +1483,239 @@ const COMMON_BRIEF_STOPWORDS = new Set([
   "user",
 ]);
 
+function inferProvideKind(provide: ScaffoldProvideInput): InferredProvideKind {
+  const signature = `${provide.name} ${provide.description}`.toLowerCase();
+  if (mentionsAny(signature, ["summary", "summarize", "summarise"])) return "summarize";
+  if (mentionsAny(signature, ["search", "find", "lookup", "grep", "research"])) return "search";
+  if (mentionsAny(signature, ["validate", "validation", "verify", "check", "lint"])) return "validate";
+  if (mentionsAny(signature, ["task", "todo", "action items"])) return "extract_tasks";
+  if (mentionsAny(signature, ["answer", "question", "q&a", "qa"])) return "answer";
+  if (mentionsAny(signature, ["classify", "classification", "categorize", "categorise", "tag"])) return "classify";
+  return "generic";
+}
+
+function inferProvideBlueprint(provide: ScaffoldProvideInput): InferredProvideBlueprint {
+  switch (inferProvideKind(provide)) {
+    case "summarize":
+      return {
+        kind: "summarize",
+        inputSchema: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: `Direct content to summarize for ${provide.name}` },
+            paths: { type: "array", items: { type: "string" }, description: "Optional file or workspace paths to summarize." },
+            maxSentences: { type: "integer", description: "Optional upper bound for the summary length." },
+            note: { type: "string", description: "Optional caller note or summary guidance." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "summary", "sourceCount"],
+          properties: {
+            status: { type: "string", enum: ["todo"], description: "Starter status returned by the scaffolded handler." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            summary: { type: "string", description: "Starter summary output." },
+            sourceCount: { type: "number", description: "Count of text/path sources considered." },
+          },
+        },
+      };
+    case "search":
+      return {
+        kind: "search",
+        inputSchema: {
+          type: "object",
+          required: ["query"],
+          properties: {
+            query: { type: "string", description: `Search query for ${provide.name}` },
+            paths: { type: "array", items: { type: "string" }, description: "Optional file or workspace paths to search." },
+            limit: { type: "integer", description: "Maximum number of matches to return." },
+            note: { type: "string", description: "Optional caller note or search hint." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "query", "matches", "total"],
+          properties: {
+            status: { type: "string", enum: ["todo"], description: "Starter status returned by the scaffolded handler." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            query: { type: "string", description: "Normalized query used by the search." },
+            matches: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["path", "snippet"],
+                properties: {
+                  path: { type: "string" },
+                  snippet: { type: "string" },
+                },
+              },
+              description: "Starter match results.",
+            },
+            total: { type: "number", description: "Total number of matches returned." },
+          },
+        },
+      };
+    case "validate":
+      return {
+        kind: "validate",
+        inputSchema: {
+          type: "object",
+          required: ["targetPath"],
+          properties: {
+            targetPath: { type: "string", description: `Target path or package to validate for ${provide.name}` },
+            note: { type: "string", description: "Optional caller note or validation scope." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "pass", "findings"],
+          properties: {
+            status: { type: "string", enum: ["todo"], description: "Starter status returned by the scaffolded handler." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            pass: { type: "boolean", description: "Starter validation verdict." },
+            findings: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["level", "message"],
+                properties: {
+                  level: { type: "string", enum: ["info", "warning", "error"] },
+                  message: { type: "string" },
+                },
+              },
+              description: "Starter validation findings.",
+            },
+          },
+        },
+      };
+    case "extract_tasks":
+      return {
+        kind: "extract_tasks",
+        inputSchema: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: `Direct content to inspect for ${provide.name}` },
+            paths: { type: "array", items: { type: "string" }, description: "Optional file or workspace paths to inspect." },
+            includeCompleted: { type: "boolean", description: "Whether completed tasks should remain in the output." },
+            note: { type: "string", description: "Optional caller note or extraction hint." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "tasks", "sourceCount"],
+          properties: {
+            status: { type: "string", enum: ["todo"], description: "Starter status returned by the scaffolded handler." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            tasks: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["title", "completed"],
+                properties: {
+                  title: { type: "string" },
+                  completed: { type: "boolean" },
+                },
+              },
+              description: "Starter extracted tasks.",
+            },
+            sourceCount: { type: "number", description: "Count of sources inspected." },
+          },
+        },
+      };
+    case "answer":
+      return {
+        kind: "answer",
+        inputSchema: {
+          type: "object",
+          required: ["question"],
+          properties: {
+            question: { type: "string", description: `Question to answer for ${provide.name}` },
+            contextPaths: { type: "array", items: { type: "string" }, description: "Optional file or workspace paths that constrain the answer." },
+            note: { type: "string", description: "Optional caller note or answer guidance." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "answer"],
+          properties: {
+            status: { type: "string", enum: ["todo"], description: "Starter status returned by the scaffolded handler." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            answer: { type: "string", description: "Starter answer output." },
+            citations: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["path", "quote"],
+                properties: {
+                  path: { type: "string" },
+                  quote: { type: "string" },
+                },
+              },
+              description: "Optional supporting citations.",
+            },
+          },
+        },
+      };
+    case "classify":
+      return {
+        kind: "classify",
+        inputSchema: {
+          type: "object",
+          required: ["text"],
+          properties: {
+            text: { type: "string", description: `Text to classify for ${provide.name}` },
+            labels: { type: "array", items: { type: "string" }, description: "Optional allowed labels for classification." },
+            note: { type: "string", description: "Optional caller note or classification hint." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "label", "confidence"],
+          properties: {
+            status: { type: "string", enum: ["todo"], description: "Starter status returned by the scaffolded handler." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            label: { type: "string", description: "Starter classification label." },
+            confidence: { type: "number", description: "Starter confidence score between 0 and 1." },
+          },
+        },
+      };
+    default:
+      return {
+        kind: "generic",
+        inputSchema: {
+          type: "object",
+          properties: {
+            note: { type: "string", description: `Optional starter input for ${provide.name}` },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId"],
+          properties: {
+            status: { type: "string", enum: ["todo"], description: "Starter status returned by the scaffolded handler." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            receivedNote: { type: "string", description: "Optional note echoed from the input." },
+          },
+        },
+      };
+  }
+}
+
 function createStarterSchemas(provide: ScaffoldProvideInput): {
   inputSchema: JSONSchemaLite;
   outputSchema: JSONSchemaLite;
 } {
+  const blueprint = inferProvideBlueprint(provide);
   return {
-    inputSchema: {
-      type: "object",
-      properties: {
-        note: {
-          type: "string",
-          description: `Optional starter input for ${provide.name}`,
-        },
-      },
-    },
-    outputSchema: {
-      type: "object",
-      required: ["status", "provide", "nodeId"],
-      properties: {
-        status: {
-          type: "string",
-          enum: ["todo"],
-          description: "Starter status returned by the scaffolded handler.",
-        },
-        provide: {
-          type: "string",
-          description: "The provide that produced the response.",
-        },
-        nodeId: {
-          type: "string",
-          description: "The current callee nodeId.",
-        },
-        receivedNote: {
-          type: "string",
-          description: "Optional note echoed from the input.",
-        },
-      },
-    },
+    inputSchema: blueprint.inputSchema,
+    outputSchema: blueprint.outputSchema,
   };
 }
 
@@ -1608,10 +1908,198 @@ export default function activate(pi: ExtensionAPI) {
 `;
 }
 
-function renderHandlersFile(nodeId: string, provides: ScaffoldProvideInput[]): string {
-  const blocks = provides
-    .map((provide) => {
-      const baseName = toPascalCase(provide.name);
+// Render stubs that already resemble the intended protocol shape so humans have less TODO surgery to do.
+function renderProvideHandlerBlock(nodeId: string, provide: ScaffoldProvideInput): string {
+  const baseName = toPascalCase(provide.name);
+  const blueprint = inferProvideBlueprint(provide);
+
+  switch (blueprint.kind) {
+    case "summarize":
+      return `interface ${baseName}Input {
+  text?: string;
+  paths?: string[];
+  maxSentences?: number;
+  note?: string;
+}
+
+interface ${baseName}Output {
+  status: "todo";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  summary: string;
+  sourceCount: number;
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  const sourceText = typeof input.text === "string" ? input.text.trim() : "";
+  const paths = Array.isArray(input.paths) ? input.paths.filter((value): value is string => typeof value === "string") : [];
+  const preview =
+    sourceText ||
+    (typeof input.note === "string" ? input.note.trim() : "") ||
+    (paths.length > 0 ? "from " + paths.length + " path(s)" : "no source text provided");
+
+  return {
+    status: "todo",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    summary: "todo: summarize " + preview.slice(0, 160),
+    sourceCount: paths.length + (sourceText ? 1 : 0),
+  };
+};`;
+    case "search":
+      return `interface ${baseName}Input {
+  query: string;
+  paths?: string[];
+  limit?: number;
+  note?: string;
+}
+
+interface ${baseName}Match {
+  path: string;
+  snippet: string;
+}
+
+interface ${baseName}Output {
+  status: "todo";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  query: string;
+  matches: ${baseName}Match[];
+  total: number;
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  return {
+    status: "todo",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    query: input.query,
+    matches: [],
+    total: 0,
+  };
+};`;
+    case "validate":
+      return `interface ${baseName}Input {
+  targetPath: string;
+  note?: string;
+}
+
+interface ${baseName}Finding {
+  level: "info" | "warning" | "error";
+  message: string;
+}
+
+interface ${baseName}Output {
+  status: "todo";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  pass: boolean;
+  findings: ${baseName}Finding[];
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  return {
+    status: "todo",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    pass: false,
+    findings: [
+      {
+        level: "info",
+        message: "todo: validate " + input.targetPath,
+      },
+    ],
+  };
+};`;
+    case "extract_tasks":
+      return `interface ${baseName}Input {
+  text?: string;
+  paths?: string[];
+  includeCompleted?: boolean;
+  note?: string;
+}
+
+interface ${baseName}Task {
+  title: string;
+  completed: boolean;
+}
+
+interface ${baseName}Output {
+  status: "todo";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  tasks: ${baseName}Task[];
+  sourceCount: number;
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  const paths = Array.isArray(input.paths) ? input.paths.filter((value): value is string => typeof value === "string") : [];
+  const sourceCount = paths.length + (typeof input.text === "string" && input.text.trim().length > 0 ? 1 : 0);
+
+  return {
+    status: "todo",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    tasks: [],
+    sourceCount,
+  };
+};`;
+    case "answer":
+      return `interface ${baseName}Input {
+  question: string;
+  contextPaths?: string[];
+  note?: string;
+}
+
+interface ${baseName}Citation {
+  path: string;
+  quote: string;
+}
+
+interface ${baseName}Output {
+  status: "todo";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  answer: string;
+  citations?: ${baseName}Citation[];
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  return {
+    status: "todo",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    answer: "todo: answer " + input.question,
+    citations: [],
+  };
+};`;
+    case "classify":
+      return `interface ${baseName}Input {
+  text: string;
+  labels?: string[];
+  note?: string;
+}
+
+interface ${baseName}Output {
+  status: "todo";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  label: string;
+  confidence: number;
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  const fallbackLabel = Array.isArray(input.labels) && input.labels.length > 0 ? input.labels[0] : "unclassified";
+
+  return {
+    status: "todo",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    label: fallbackLabel,
+    confidence: 0,
+  };
+};`;
+    default:
       return `interface ${baseName}Input {
   note?: string;
 }
@@ -1631,12 +2119,16 @@ export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Outpu
     receivedNote: typeof input.note === "string" ? input.note : undefined,
   };
 };`;
-    })
-    .join("\n\n");
+  }
+}
+
+function renderHandlersFile(nodeId: string, provides: ScaffoldProvideInput[]): string {
+  const blocks = provides.map((provide) => renderProvideHandlerBlock(nodeId, provide)).join("\n\n");
 
   return `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
 
 // ${nodeId} starter handlers
+// Each handler keeps the public protocol contract typed, even when the implementation is still a TODO.
 ${blocks}
 `;
 }

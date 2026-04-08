@@ -2,7 +2,9 @@ import { Type } from "@mariozechner/pi-ai";
 
 export const FABRIC_KEY = Symbol.for("pi-protocol.fabric");
 export const PROTOCOL_AGENT_PROJECTION_KEY = Symbol.for("pi-protocol.agent-projection");
+export const PROTOCOL_PROMPT_AWARENESS_KEY = Symbol.for("pi-protocol.prompt-awareness");
 export const PROTOCOL_TOOL_NAME = "protocol";
+const PROTOCOL_PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
 
 const DEFAULT_MAX_DEPTH = 16;
 const DEFAULT_TIMEOUT_MS = 120000;
@@ -309,6 +311,16 @@ export interface ProtocolFabricOptions {
 export interface ProtocolAgentProjectionTarget {
   registerTool?: (tool: unknown) => void;
   getAllTools?: () => Array<{ name: string }>;
+  getActiveTools?: () => string[];
+  on?: (
+    event: "before_agent_start",
+    handler: (
+      event: { prompt: string; systemPrompt: string },
+    ) =>
+      | { systemPrompt?: string }
+      | void
+      | Promise<{ systemPrompt?: string } | void>,
+  ) => void;
 }
 
 export interface ProtocolAgentProjectionOptions {
@@ -316,6 +328,14 @@ export interface ProtocolAgentProjectionOptions {
   toolName?: string;
   label?: string;
   description?: string;
+}
+
+export interface ProtocolPromptAwarenessOptions {
+  toolName?: string;
+}
+
+interface ProtocolPerTargetRegistrationState {
+  toolNamesByTarget: WeakMap<object, Set<string>>;
 }
 
 export interface ProtocolCallContext<TBudget extends ProtocolBudget = ProtocolBudget> {
@@ -962,20 +982,105 @@ export async function handleProtocolToolRequest(
   }
 }
 
+function getProtocolPerTargetState(key: symbol): ProtocolPerTargetRegistrationState {
+  const globals = globalThis as Record<PropertyKey, unknown>;
+  const existing = globals[key] as ProtocolPerTargetRegistrationState | undefined;
+
+  if (existing?.toolNamesByTarget instanceof WeakMap) {
+    return existing;
+  }
+
+  const created: ProtocolPerTargetRegistrationState = {
+    toolNamesByTarget: new WeakMap<object, Set<string>>(),
+  };
+  globals[key] = created;
+  return created;
+}
+
+function toRegistrationTarget(value: unknown): object | null {
+  if ((typeof value === "object" || typeof value === "function") && value !== null) {
+    return value;
+  }
+
+  return null;
+}
+
+function getRegisteredToolNames(state: ProtocolPerTargetRegistrationState, target: object | null): Set<string> | null {
+  if (!target) return null;
+
+  const existing = state.toolNamesByTarget.get(target);
+  if (existing) return existing;
+
+  const created = new Set<string>();
+  state.toolNamesByTarget.set(target, created);
+  return created;
+}
+
+function listVisibleToolNames(pi: ProtocolAgentProjectionTarget): Set<string> {
+  const activeToolNames = pi.getActiveTools?.() ?? [];
+  if (activeToolNames.length > 0) {
+    return new Set(activeToolNames);
+  }
+
+  return new Set((pi.getAllTools?.() ?? []).map((tool) => tool.name));
+}
+
+function renderProtocolPromptAwareness(toolName: string): string {
+  return `${PROTOCOL_PROMPT_AWARENESS_MARKER}
+- When a user asks for a capability or workflow, check \`${toolName}\` for matching installed public provides before generating new code.
+- Prefer reusing and invoking discovered public provides when they already satisfy the request.`;
+}
+
+export function ensureProtocolPromptAwareness(
+  pi: ProtocolAgentProjectionTarget,
+  options: ProtocolPromptAwarenessOptions = {},
+): { toolName: string; installed: boolean } {
+  const toolName = options.toolName?.trim() || PROTOCOL_TOOL_NAME;
+  if (!pi.on) {
+    return { toolName, installed: false };
+  }
+
+  const target = toRegistrationTarget(pi);
+  const state = getProtocolPerTargetState(PROTOCOL_PROMPT_AWARENESS_KEY);
+  const registeredToolNames = getRegisteredToolNames(state, target);
+  if (registeredToolNames?.has(toolName)) {
+    return { toolName, installed: false };
+  }
+
+  pi.on("before_agent_start", async (event) => {
+    if (!listVisibleToolNames(pi).has(toolName)) {
+      return;
+    }
+
+    if (event.systemPrompt.includes(PROTOCOL_PROMPT_AWARENESS_MARKER)) {
+      return;
+    }
+
+    return {
+      systemPrompt: `${event.systemPrompt}\n\n${renderProtocolPromptAwareness(toolName)}`,
+    };
+  });
+
+  registeredToolNames?.add(toolName);
+  return { toolName, installed: true };
+}
+
 export function ensureProtocolAgentProjection(
   pi: ProtocolAgentProjectionTarget,
   fabric: ProtocolFabric,
   options: ProtocolAgentProjectionOptions = {},
 ): { toolName: string; registered: boolean } {
-  const globals = globalThis as Record<PropertyKey, unknown>;
   const toolName = options.toolName?.trim() || PROTOCOL_TOOL_NAME;
-  const existingRegistration = globals[PROTOCOL_AGENT_PROJECTION_KEY] as { toolName?: string } | undefined;
+  const target = toRegistrationTarget(pi);
+  const state = getProtocolPerTargetState(PROTOCOL_AGENT_PROJECTION_KEY);
+  const registeredToolNames = getRegisteredToolNames(state, target);
   const alreadyRegistered =
-    existingRegistration?.toolName === toolName ||
+    registeredToolNames?.has(toolName) ||
     !!pi.getAllTools?.().some((tool) => tool.name === toolName);
 
   if (alreadyRegistered) {
-    globals[PROTOCOL_AGENT_PROJECTION_KEY] = { toolName };
+    registeredToolNames?.add(toolName);
+    ensureProtocolPromptAwareness(pi, { toolName });
     return { toolName, registered: false };
   }
 
@@ -990,10 +1095,8 @@ export function ensureProtocolAgentProjection(
     label: options.label,
     description: options.description,
   }));
-  globals[PROTOCOL_AGENT_PROJECTION_KEY] = {
-    toolName,
-    callerNodeId,
-  };
+  registeredToolNames?.add(toolName);
+  ensureProtocolPromptAwareness(pi, { toolName });
 
   return { toolName, registered: true };
 }
