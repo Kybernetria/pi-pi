@@ -26,7 +26,7 @@
     },
     {
       "name": "scaffold_collaborating_nodes",
-      "description": "Generate two collaborating TypeScript-first protocol-certified node packages that invoke each other through the shared fabric.",
+      "description": "Generate two collaborating TypeScript-first protocol-certified node packages aligned with the shared fabric, standard protocol projection, and protocol-native delegation surfaces.",
       "handler": "scaffold_collaborating_nodes",
       "version": "1.0.0",
       "tags": ["template", "collaboration", "generator"],

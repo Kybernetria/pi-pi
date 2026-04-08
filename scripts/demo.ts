@@ -32,6 +32,10 @@ interface RegisteredCommand {
   handler: (args: string, ctx: CommandContext) => Promise<void> | void;
 }
 
+interface RegisteredTool {
+  name: string;
+}
+
 type EventHandler = (payload?: unknown, ctx?: CommandContext) => Promise<void> | void;
 
 type DemoPiRuntime = ProtocolSessionPi &
@@ -39,9 +43,12 @@ type DemoPiRuntime = ProtocolSessionPi &
     entries: Array<{ kind: string; data: unknown }>;
     commands: Map<string, RegisteredCommand>;
     notifications: Notification[];
+    tools: RegisteredTool[];
     on: (event: string, handler: EventHandler) => void;
     emit: (event: string, payload?: unknown) => Promise<void>;
     registerCommand: (name: string, options: RegisteredCommand) => void;
+    registerTool: (tool: RegisteredTool) => void;
+    getAllTools: () => RegisteredTool[];
     runCommand: (name: string, args?: string) => Promise<void>;
   };
 
@@ -64,11 +71,13 @@ function createPiRuntime(): DemoPiRuntime {
   const listeners = new Map<string, EventHandler[]>();
   const commands = new Map<string, RegisteredCommand>();
   const notifications: Notification[] = [];
+  const tools: RegisteredTool[] = [];
 
   return {
     entries,
     commands,
     notifications,
+    tools,
     appendEntry(kind: string, data: unknown) {
       entries.push({ kind, data });
     },
@@ -85,6 +94,12 @@ function createPiRuntime(): DemoPiRuntime {
     },
     registerCommand(name: string, options: RegisteredCommand) {
       commands.set(name, options);
+    },
+    registerTool(tool: RegisteredTool) {
+      tools.push(tool);
+    },
+    getAllTools() {
+      return [...tools];
     },
     async runCommand(name: string, args = "") {
       const command = commands.get(name);
@@ -122,6 +137,9 @@ async function main(): Promise<void> {
   await runtime.emit("session_start", { reason: "demo" });
 
   printSection("registry", fabric.getRegistry());
+  printSection("activation_assertions", {
+    protocolToolRegistered: runtime.getAllTools().some((tool) => tool.name === "protocol"),
+  });
 
   const selfValidate = await invokeTyped<ValidateCertifiedNodeOutput>(fabric, {
     callerNodeId: "demo-runner",
@@ -172,7 +190,12 @@ async function main(): Promise<void> {
     target: { nodeId: "pi-pi" },
     input: { packageDir: tmpDir },
   });
-  printSection("validate_certified_node", validate);
+  printSection("validate_certified_node", {
+    result: validate,
+    scaffoldBootstrapEnsuresProjection: scaffold.output.files["extensions/index.ts"].includes(
+      "ensureProtocolAgentProjection",
+    ),
+  });
 
   const pair = await invokeTyped<ScaffoldCollaboratingNodesOutput>(fabric, {
     callerNodeId: "demo-runner",
@@ -217,7 +240,13 @@ async function main(): Promise<void> {
   printSection("validate_collaborating_pair", {
     manager: validateManager,
     worker: validateWorker,
-    managerUsesFabricInvoke: pair.output.manager.files["protocol/handlers.ts"].includes("ctx.fabric.invoke"),
+    managerUsesDelegateInvoke: pair.output.manager.files["protocol/handlers.ts"].includes("ctx.delegate.invoke"),
+    managerBootstrapEnsuresProjection: pair.output.manager.files["extensions/index.ts"].includes(
+      "ensureProtocolAgentProjection",
+    ),
+    workerBootstrapEnsuresProjection: pair.output.worker.files["extensions/index.ts"].includes(
+      "ensureProtocolAgentProjection",
+    ),
     workerHasInternalPrompt:
       "protocol/prompts/do_task.md" in pair.output.worker.files ||
       Object.keys(pair.output.worker.files).some((filePath) => filePath.startsWith("protocol/prompts/")),

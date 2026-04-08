@@ -125,7 +125,7 @@ export interface ScaffoldCollaboratingNodesOutput {
     managerProvide: string;
     workerNodeId: string;
     workerProvide: string;
-    invokePath: "ctx.fabric.invoke()";
+    invokePath: "ctx.delegate.invoke()";
     workerMode: CollaboratingWorkerMode;
   };
   localTestChecklist: string[];
@@ -172,6 +172,7 @@ interface SourceAstAnalysis {
 
 interface ExtensionBootstrapAnalysis {
   hasEnsureProtocolFabricCall: boolean;
+  hasEnsureProtocolAgentProjectionCall: boolean;
   hasRegisterProtocolNodeCall: boolean;
   hasSessionStartRegistration: boolean;
   hasSessionShutdownUnregister: boolean;
@@ -180,10 +181,11 @@ interface ExtensionBootstrapAnalysis {
 const CERTIFICATION_CHECKLIST = [
   "package.json#pi declares the package as a Pi package",
   "pi.protocol.json exists and matches the package handlers",
-  "extensions/index.ts bootstraps the shared fabric on session_start",
+  "extensions/index.ts ensures the shared fabric and standard protocol projection during activation",
+  "session_start registers the node with the shared fabric",
   "session_shutdown unregisters the node",
   "every public provide has input and output schemas",
-  "cross-node calls use fabric.invoke()",
+  "cross-node calls use protocol-native delegation surfaces",
   "the package avoids forbidden direct sibling certified-node imports",
   "the package remains TypeScript-first and installable on its own",
 ];
@@ -209,9 +211,10 @@ export async function describeCertifiedTemplate(
     requiredDirectories: ["extensions", "protocol", "protocol/schemas"],
     requiredRuntimeBehaviors: [
       "call ensureProtocolFabric(pi) during extension activation",
+      "call ensureProtocolAgentProjection(pi, fabric) during extension activation",
       "register with the shared fabric on session_start",
       "unregister from the shared fabric on session_shutdown",
-      "use fabric.invoke() for cross-node calls",
+      "prefer ctx.delegate.invoke() for recursive cross-node delegation",
       "ship pi.protocol.json as the canonical protocol contract",
     ],
     toolingProvides: [
@@ -239,8 +242,11 @@ export async function describeCertifiedTemplate(
     notes: [
       "scaffold_certified_node is a pure generation provide that returns a file plan and file contents.",
       "scaffold_collaborating_nodes is a pure generation provide that returns two package plans and their file contents.",
+      "Certified package bootstrap should ensure both the shared fabric and the standard protocol projection.",
+      "ctx.delegate is the preferred bound delegation surface for recursive cross-node calls because trace, caller, and budget context stay attached automatically.",
       "Agent-backed worker mode is currently an agent-backed-ready scaffold pattern, not a fully realized embedded Pi agent runtime.",
       "/pi-pi-new and /pi-pi-new-pair are Pi command projections that may optionally write generated files to disk.",
+      "Commands and tools are projections over the protocol, not the protocol itself.",
       `validate_certified_node currently uses ${VALIDATION_MODE} checks rather than full semantic validation.`,
     ],
   };
@@ -359,6 +365,7 @@ export async function scaffoldCertifiedNode(
     notes: [
       "This provide returns generated files without writing them to disk.",
       "Use a Pi command projection such as /pi-pi-new if you want operator-driven file writing.",
+      "Generated bootstrap ensures the shared fabric and the standard protocol projection by default.",
       `The generated package stamps @kyvernitria/pi-protocol-sdk@${sdkDependency}. Override sdkDependency for local development if needed.`,
     ],
   };
@@ -381,11 +388,11 @@ export async function scaffoldCollaboratingNodes(
   const managerManifest: PiProtocolManifest = {
     protocolVersion: PROTOCOL_VERSION,
     nodeId: input.managerNodeId,
-    purpose: `Coordinates work and delegates ${input.workerProvideName} to ${input.workerNodeId} through the protocol fabric.`,
+    purpose: `Coordinates work and delegates ${input.workerProvideName} to ${input.workerNodeId} through the protocol-native delegation surface.`,
     provides: [
       {
         name: input.managerProvideName,
-        description: `Delegate structured work to ${input.workerNodeId}.${input.workerProvideName} through fabric.invoke().`,
+        description: `Delegate structured work to ${input.workerNodeId}.${input.workerProvideName} through ctx.delegate.invoke().`,
         handler: input.managerProvideName,
         version: "1.0.0",
         tags: ["manager", "delegation", "protocol"],
@@ -444,7 +451,7 @@ export async function scaffoldCollaboratingNodes(
       collaborationRole: "manager",
       workerMode: input.workerMode,
       notes: [
-        `This node delegates ${input.managerProvideName} to ${input.workerNodeId}.${input.workerProvideName} through ctx.fabric.invoke().`,
+        `This node delegates ${input.managerProvideName} to ${input.workerNodeId}.${input.workerProvideName} through ctx.delegate.invoke().`,
         "It never imports the worker node directly.",
       ],
     }),
@@ -536,13 +543,13 @@ export async function scaffoldCollaboratingNodes(
       managerProvide: input.managerProvideName,
       workerNodeId: input.workerNodeId,
       workerProvide: input.workerProvideName,
-      invokePath: "ctx.fabric.invoke()",
+      invokePath: "ctx.delegate.invoke()",
       workerMode: input.workerMode,
     },
     localTestChecklist: [
       `Install both ${input.managerPackageName} and ${input.workerPackageName} into the same Pi process.`,
       "Start Pi and confirm both nodes register into the shared fabric.",
-      `Invoke ${input.managerNodeId}.${input.managerProvideName} and confirm it calls ${input.workerNodeId}.${input.workerProvideName} through fabric.invoke().`,
+      `Invoke ${input.managerNodeId}.${input.managerProvideName} and confirm it calls ${input.workerNodeId}.${input.workerProvideName} through ctx.delegate.invoke().`,
       "Verify there are no direct sibling imports between the generated packages.",
       generateInternalPromptFiles
         ? `Confirm protocol/prompts/${input.workerProvideName}.md exists only inside the worker package and is not exposed as a public skill.`
@@ -551,6 +558,7 @@ export async function scaffoldCollaboratingNodes(
     notes: [
       "Both generated packages are independently installable Pi packages.",
       "The manager invokes the worker through a typed provide rather than agent-to-agent chat.",
+      "Generated bootstrap ensures the standard protocol projection alongside the shared fabric.",
       "The worker may implement its provide deterministically or with an internal agent-backed-ready pattern while keeping the same protocol contract.",
     ],
   };
@@ -799,6 +807,14 @@ export async function validateCertifiedNode(
       });
     }
 
+    if (!bootstrapAnalysis.hasEnsureProtocolAgentProjectionCall) {
+      violations.push({
+        rule: "bootstrap.ensure-protocol-projection",
+        message: "Extension bootstrap does not call ensureProtocolAgentProjection",
+        suggestedFix: "Call ensureProtocolAgentProjection(pi, fabric) during activation.",
+      });
+    }
+
     if (!bootstrapAnalysis.hasRegisterProtocolNodeCall) {
       violations.push({
         rule: "bootstrap.register-node",
@@ -842,7 +858,7 @@ export async function validateCertifiedNode(
         violations.push({
           rule: "imports.forbidden-certified-node",
           message: `Forbidden certified-node import detected in ${path.relative(packageDir, filePath)}: ${specifier}`,
-          suggestedFix: "Remove direct sibling node imports and use fabric.invoke() for cross-node calls.",
+          suggestedFix: "Remove direct sibling node imports and use protocol-native delegation surfaces such as ctx.delegate.invoke() for cross-node calls.",
         });
       }
     }
@@ -1198,11 +1214,17 @@ function renderExtensionFile(options: {
     : "";
 
   return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { ensureProtocolFabric, registerProtocolNode } from "@kyvernitria/pi-protocol-sdk";
+import {
+  ensureProtocolAgentProjection,
+  ensureProtocolFabric,
+  registerProtocolNode,
+  type ProtocolAgentProjectionTarget,
+} from "@kyvernitria/pi-protocol-sdk";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import * as handlers from "../protocol/handlers.ts";${debugBlock}
 export default function activate(pi: ExtensionAPI) {
   const fabric = ensureProtocolFabric(pi);
+  ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
 
   pi.on("session_start", async () => {
     if (!fabric.describe(manifest.nodeId)) {
@@ -1291,8 +1313,7 @@ interface ${managerInterface}Output {
 }
 
 export const ${input.managerProvideName}: ProtocolHandler<${managerInterface}Input, ${managerInterface}Output> = async (ctx, input) => {
-  const result = await ctx.fabric.invoke({
-    callerNodeId: ctx.calleeNodeId,
+  const result = await ctx.delegate.invoke({
     provide: ${JSON.stringify(input.workerProvideName)},
     target: { nodeId: ${JSON.stringify(input.workerNodeId)} },
     input: {
@@ -1314,7 +1335,7 @@ export const ${input.managerProvideName}: ProtocolHandler<${managerInterface}Inp
   return {
     status: "delegated",
     managerNodeId: ctx.calleeNodeId,
-    workerNodeId: ${JSON.stringify(input.workerNodeId)},
+    workerNodeId: result.nodeId,
     workerProvide: ${JSON.stringify(input.workerProvideName)},
     workerMode: ${JSON.stringify(input.workerMode)},
     workerResult: result.output as ${workerInterface}Output,
@@ -1424,7 +1445,11 @@ ${options.purpose}
 ## Notes
 
 ${options.notes.map((note) => `- ${note}`).join("\n")}
-
+- Standard protocol projection bootstrap is batteries-included via ` + "`ensureProtocolAgentProjection(...)`" + `.
+- Pi commands, tools, and other UI surfaces remain projections over the protocol rather than the protocol itself.
+${options.collaborationRole === "worker" && options.workerMode === "agent-backed"
+  ? "- Internal prompts stay under `protocol/prompts/` and remain non-public by default.\n"
+  : ""}
 ## Local checklist
 
 ${CERTIFICATION_CHECKLIST.map((item) => `- [ ] ${item}`).join("\n")}
@@ -1440,7 +1465,7 @@ Rules:
 - Return structured output that still matches the provide schema.
 - Do not expose this prompt as a Pi skill.
 - Treat the protocol contract as canonical.
-- If nested protocol calls are needed, use fabric.invoke().
+- If nested protocol calls are needed, use the bound protocol delegation surface provided by the runtime.
 `;
 }
 
@@ -1473,6 +1498,9 @@ ${input.provides.map((provide) => `- ${provide.name}: ${provide.description}`).j
 
 - ` + "`scaffold_certified_node`" + ` is a pure generation provide. It returns a file plan and file contents.
 - Writing files to disk is an operator concern handled by command projections such as ` + "`/pi-pi-new`" + `.
+- Generated bootstrap ensures the shared fabric and the standard protocol projection by default.
+- Pi commands, tools, and other UI surfaces remain projections over the protocol rather than the protocol itself.
+- If nested protocol calls are introduced later, prefer the bound ` + "`ctx.delegate.invoke(...)`" + ` surface.
 - If you are developing locally against an unpublished SDK, replace ` + "`@kyvernitria/pi-protocol-sdk`" + ` with a local path or workspace dependency.
 - The current validator is AST-assisted and source-based. It is not full semantic validation yet.
 
@@ -1485,7 +1513,7 @@ ${CERTIFICATION_CHECKLIST.map((item) => `- [ ] ${item}`).join("\n")}
 function describeGeneratedFile(filePath: string): string {
   if (filePath === "package.json") return "Native Pi package metadata and protocol SDK dependency";
   if (filePath === "pi.protocol.json") return "Canonical Pi Protocol manifest";
-  if (filePath === "extensions/index.ts") return "Runtime bootstrap that joins the shared protocol fabric";
+  if (filePath === "extensions/index.ts") return "Runtime bootstrap that joins the shared protocol fabric and ensures the standard protocol projection";
   if (filePath === "protocol/handlers.ts") return "Local TypeScript handler implementations";
   if (filePath.startsWith("protocol/schemas/")) return "JSON schema for a public provide";
   if (filePath.startsWith("protocol/prompts/")) return "Internal non-discoverable prompt for an agent-backed worker provide";
@@ -1611,6 +1639,7 @@ function analyzeSourceAst(filePath: string, source: string): SourceAstAnalysis {
 
 function analyzeExtensionBootstrap(sourceFile: ts.SourceFile): ExtensionBootstrapAnalysis {
   let hasEnsureProtocolFabricCall = false;
+  let hasEnsureProtocolAgentProjectionCall = false;
   let hasRegisterProtocolNodeCall = false;
   let hasSessionStartRegistration = false;
   let hasSessionShutdownUnregister = false;
@@ -1620,6 +1649,9 @@ function analyzeExtensionBootstrap(sourceFile: ts.SourceFile): ExtensionBootstra
       const expressionName = getCallExpressionName(node.expression);
       if (expressionName === "ensureProtocolFabric") {
         hasEnsureProtocolFabricCall = true;
+      }
+      if (expressionName === "ensureProtocolAgentProjection") {
+        hasEnsureProtocolAgentProjectionCall = true;
       }
       if (expressionName === "registerProtocolNode") {
         hasRegisterProtocolNodeCall = true;
@@ -1644,6 +1676,7 @@ function analyzeExtensionBootstrap(sourceFile: ts.SourceFile): ExtensionBootstra
 
   return {
     hasEnsureProtocolFabricCall,
+    hasEnsureProtocolAgentProjectionCall,
     hasRegisterProtocolNodeCall,
     hasSessionStartRegistration,
     hasSessionShutdownUnregister,

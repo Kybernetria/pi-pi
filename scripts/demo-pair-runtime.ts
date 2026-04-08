@@ -32,6 +32,10 @@ interface RegisteredCommand {
   handler: (args: string, ctx: CommandContext) => Promise<void> | void;
 }
 
+interface RegisteredTool {
+  name: string;
+}
+
 type EventHandler = (payload?: unknown, ctx?: CommandContext) => Promise<void> | void;
 
 type DemoPiRuntime = ProtocolSessionPi &
@@ -39,9 +43,12 @@ type DemoPiRuntime = ProtocolSessionPi &
     entries: Array<{ kind: string; data: unknown }>;
     commands: Map<string, RegisteredCommand>;
     notifications: Notification[];
+    tools: RegisteredTool[];
     on: (event: string, handler: EventHandler) => void;
     emit: (event: string, payload?: unknown) => Promise<void>;
     registerCommand: (name: string, options: RegisteredCommand) => void;
+    registerTool: (tool: RegisteredTool) => void;
+    getAllTools: () => RegisteredTool[];
     runCommand: (name: string, args?: string) => Promise<void>;
   };
 
@@ -64,11 +71,13 @@ function createPiRuntime(): DemoPiRuntime {
   const listeners = new Map<string, EventHandler[]>();
   const commands = new Map<string, RegisteredCommand>();
   const notifications: Notification[] = [];
+  const tools: RegisteredTool[] = [];
 
   return {
     entries,
     commands,
     notifications,
+    tools,
     appendEntry(kind: string, data: unknown) {
       entries.push({ kind, data });
     },
@@ -85,6 +94,12 @@ function createPiRuntime(): DemoPiRuntime {
     },
     registerCommand(name: string, options: RegisteredCommand) {
       commands.set(name, options);
+    },
+    registerTool(tool: RegisteredTool) {
+      tools.push(tool);
+    },
+    getAllTools() {
+      return [...tools];
     },
     async runCommand(name: string, args = "") {
       const command = commands.get(name);
@@ -110,6 +125,8 @@ async function writeFiles(rootDir: string, files: Record<string, string>): Promi
 async function writeSdkPackage(rootDir: string): Promise<void> {
   const sdkDir = path.join(rootDir, "node_modules", "@kyvernitria", "pi-protocol-sdk");
   const vendorSdkPath = path.resolve("vendor/pi-protocol-sdk.ts");
+  const piAiDir = path.join(rootDir, "node_modules", "@mariozechner", "pi-ai");
+
   await fs.mkdir(sdkDir, { recursive: true });
   await fs.writeFile(
     path.join(sdkDir, "package.json"),
@@ -126,6 +143,61 @@ async function writeSdkPackage(rootDir: string): Promise<void> {
     "utf8",
   );
   await fs.copyFile(vendorSdkPath, path.join(sdkDir, "index.ts"));
+
+  await fs.mkdir(piAiDir, { recursive: true });
+  await fs.writeFile(
+    path.join(piAiDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "@mariozechner/pi-ai",
+        version: "0.0.0-demo",
+        type: "module",
+        exports: "./index.js",
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(piAiDir, "index.js"),
+    `const optional = (schema) => ({ ...schema, optional: true });
+
+export const Type = {
+  Object(properties = {}) {
+    return { type: "object", properties };
+  },
+  Union(anyOf = []) {
+    return { anyOf };
+  },
+  Literal(constValue) {
+    return { const: constValue, type: typeof constValue };
+  },
+  Optional(schema) {
+    return optional(schema);
+  },
+  Array(items) {
+    return { type: "array", items };
+  },
+  String() {
+    return { type: "string" };
+  },
+  Number() {
+    return { type: "number" };
+  },
+  Boolean() {
+    return { type: "boolean" };
+  },
+  Null() {
+    return { type: "null" };
+  },
+  Any() {
+    return {};
+  },
+};
+`,
+    "utf8",
+  );
 }
 
 async function invokeTyped<TOutput>(
@@ -217,12 +289,19 @@ async function main(): Promise<void> {
 
   printSection("runtime_assertions", {
     sameSharedFabric: managerFabric === workerFabric,
+    protocolToolRegistered: runtime.getAllTools().some((tool) => tool.name === "protocol"),
     managerRegistered: JSON.stringify(registry).includes(pair.crossNodeWiringSummary.managerNodeId),
     workerRegistered: JSON.stringify(registry).includes(pair.crossNodeWiringSummary.workerNodeId),
     invocationOk: invocation.ok,
     workerReached:
       invocation.ok && invocation.output.workerNodeId === pair.crossNodeWiringSummary.workerNodeId,
-    managerUsedFabricInvoke: pair.manager.files["protocol/handlers.ts"].includes("ctx.fabric.invoke"),
+    managerUsedDelegateInvoke: pair.manager.files["protocol/handlers.ts"].includes("ctx.delegate.invoke"),
+    managerBootstrapEnsuresProjection: pair.manager.files["extensions/index.ts"].includes(
+      "ensureProtocolAgentProjection",
+    ),
+    workerBootstrapEnsuresProjection: pair.worker.files["extensions/index.ts"].includes(
+      "ensureProtocolAgentProjection",
+    ),
     workerPromptWasUsed:
       invocation.ok && invocation.output.workerResult.promptUsed === true,
   });

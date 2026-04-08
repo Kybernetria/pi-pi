@@ -5,6 +5,8 @@
 It follows the protocol itself:
 
 - ships `pi.protocol.json`
+- ensures the shared protocol fabric during activation
+- ensures the batteries-included standard `protocol` projection during activation
 - registers with the shared protocol fabric on `session_start`
 - exposes canonical protocol `provides`
 - offers Pi commands as projections of those same provides
@@ -36,7 +38,7 @@ Important separation:
 
 `scaffold_collaborating_nodes` generates two separate certified packages:
 
-- a manager node with a provide that delegates to a worker through `ctx.fabric.invoke()`
+- a manager node with a provide that delegates to a worker through `ctx.delegate.invoke()`
 - a worker node with either:
   - deterministic implementation mode, or
   - agent-backed-ready internal implementation mode
@@ -47,12 +49,30 @@ Important caveat:
 
 - the current agent-backed worker mode is a starter scaffold pattern
 - it is not yet a fully realized embedded Pi agent runtime
+- internal prompts remain non-public by default and are not generated as public skills
 
 If agent-backed worker mode is selected, internal prompt files are generated under a non-discoverable location such as:
 
 - `protocol/prompts/`
 
 They are intentionally **not** generated as public Pi skills.
+
+## Internal generation guidance
+
+`pi-pi` may use internal non-discoverable instruction text for interpreting natural-language extension briefs.
+
+Current internal instruction location:
+
+- `protocol/instructions/interpret-extension-brief.md`
+
+This is internal guidance for planning and generation behavior.
+It is not intended to be exposed as a public skill by default.
+
+Reference/example prompt guidance for humans lives at:
+
+- `docs/guides/generate-certified-node-prompt.md`
+
+That guide is only an example/reference. Users should not need to learn rigid prompt syntax just to describe an extension.
 
 ## Validation status
 
@@ -69,6 +89,13 @@ It checks things like:
 - non-standalone dependency specs such as `file:`, `link:`, and `workspace:`
 
 It does **not** yet do full semantic validation.
+
+## Runtime model notes
+
+- certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
+- the standard `protocol` tool is a projection over the protocol, not the protocol itself
+- `ctx.delegate` is the preferred bound recursive delegation surface because trace, caller, budget, and depth context stay attached automatically
+- direct `ctx.fabric.invoke(...)` can still exist in low-level code, but generated collaborating scaffolds now prefer `ctx.delegate.invoke(...)`
 
 ## Dependency strategy
 
@@ -99,13 +126,15 @@ npm run demo
 The demo verifies that:
 
 1. `pi-pi` loads and registers in the fabric
-2. `pi-pi` validates itself successfully
-3. `pi-pi` can describe the certified template
-4. `pi-pi` can scaffold a TypeScript certified-node template
-5. `pi-pi` can scaffold a collaborating manager/worker pair
-6. generated packages validate successfully
-7. generated manager handlers call workers through `ctx.fabric.invoke()`
-8. command projections remain aligned with the protocol handlers
+2. `pi-pi` ensures the standard `protocol` projection
+3. `pi-pi` validates itself successfully
+4. `pi-pi` can describe the certified template
+5. `pi-pi` can scaffold a TypeScript certified-node template
+6. generated bootstrap includes `ensureProtocolAgentProjection(...)`
+7. `pi-pi` can scaffold a collaborating manager/worker pair
+8. generated packages validate successfully
+9. generated manager handlers call workers through `ctx.delegate.invoke()`
+10. command projections remain aligned with the protocol handlers
 
 For an end-to-end generated-pair runtime proof, also run:
 

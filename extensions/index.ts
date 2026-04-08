@@ -1,7 +1,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
+  ensureProtocolAgentProjection,
   ensureProtocolFabric,
   registerProtocolNode,
+  type ProtocolAgentProjectionTarget,
   type ProtocolFabric,
   type ProtocolInvokeResult,
   type ProtocolSessionPi,
@@ -133,6 +135,7 @@ async function writeFiles(rootDir: string, files: Record<string, string>): Promi
 
 export default function activate(pi: PiRuntime) {
   const fabric = ensureProtocolFabric(pi);
+  ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
 
   pi.on("session_start", async () => {
     if (!fabric.describe(manifest.nodeId)) {
