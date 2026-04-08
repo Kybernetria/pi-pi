@@ -1031,6 +1031,8 @@ function renderProtocolPromptAwareness(toolName: string): string {
 - Prefer reusing and invoking discovered public provides when they already satisfy the request.`;
 }
 
+// Keep this helper internal and tiny: it only appends one short turn-level nudge so
+// top-level chat remembers to discover/reuse protocol capabilities before generating new code.
 export function ensureProtocolPromptAwareness(
   pi: ProtocolAgentProjectionTarget,
   options: ProtocolPromptAwarenessOptions = {},

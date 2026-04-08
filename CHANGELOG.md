@@ -7,3 +7,4 @@
 - improved natural-language planning heuristics so plain-language briefs can infer richer candidate provides and better single-node vs collaborating-pair recommendations
 - upgraded generated single-node schemas and handler stubs for common capabilities such as search, summarization, validation, Q&A, task extraction, and classification
 - added regression and planning/scaffold verification scripts: `npm run test:regressions` and `npm run test:planning`
+- added `npm run test:sdk-session` to verify the standard `protocol` projection and prompt-awareness helper inside a real Pi SDK `AgentSession`

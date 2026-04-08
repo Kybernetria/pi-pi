@@ -8,6 +8,7 @@
     "demo:pair-runtime": "tsx scripts/demo-pair-runtime.ts",
     "test:planning": "tsx scripts/test-planning-and-scaffolds.ts",
     "test:regressions": "tsx scripts/test-regressions.ts",
+    "test:sdk-session": "tsx scripts/test-sdk-session.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

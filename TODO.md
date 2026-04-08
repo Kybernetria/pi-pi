@@ -25,9 +25,9 @@ Current gap:
 - [x] add or finalize a tiny shared prompt-awareness helper for the `protocol` tool
 - [x] ensure the helper installs once per process and does not bloat context
 - [x] make sure the helper is available through the certified bootstrap path
-- [ ] verify the `protocol` tool is discoverable in real Pi agent sessions
-- [ ] confirm the top-level chat experience can use protocol discovery before generating new code
-- [ ] keep the helper TypeScript-first and internal, not a public skill
+- [x] verify the `protocol` tool is discoverable in real Pi agent sessions
+- [x] confirm the top-level chat experience can use protocol discovery before generating new code
+- [x] keep the helper TypeScript-first and internal, not a public skill
 
 ## P1 - improve greenfield extension generation
 

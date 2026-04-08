@@ -136,6 +136,7 @@ npm install
 npm run typecheck
 npm run test:planning
 npm run test:regressions
+npm run test:sdk-session
 npm run demo
 ```
 
@@ -144,6 +145,7 @@ The demo verifies that:
 1. `pi-pi` loads and registers in the fabric
 2. `pi-pi` ensures the standard `protocol` projection
 2.1. the projection path installs a tiny protocol-aware prompt helper without duplicating it across repeated startup hooks
+2.2. a real Pi SDK `AgentSession` exposes the `protocol` tool and receives the protocol-aware pre-turn prompt nudge
 3. `pi-pi` validates itself successfully
 4. `pi-pi` can describe the certified template
 5. `pi-pi` can interpret a natural-language brief into a structured plan using internal instruction files
