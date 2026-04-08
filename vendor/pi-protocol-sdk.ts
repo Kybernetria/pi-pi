@@ -5,6 +5,7 @@ export const PROTOCOL_AGENT_PROJECTION_KEY = Symbol.for("pi-protocol.agent-proje
 export const PROTOCOL_PROMPT_AWARENESS_KEY = Symbol.for("pi-protocol.prompt-awareness");
 export const PROTOCOL_TOOL_NAME = "protocol";
 const PROTOCOL_PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
+const REGISTRY_SUMMARY_THRESHOLD = 40;
 
 const DEFAULT_MAX_DEPTH = 16;
 const DEFAULT_TIMEOUT_MS = 120000;
@@ -1028,7 +1029,8 @@ function listVisibleToolNames(pi: ProtocolAgentProjectionTarget): Set<string> {
 function renderProtocolPromptAwareness(toolName: string): string {
   return `${PROTOCOL_PROMPT_AWARENESS_MARKER}
 - When a user asks for a capability or workflow, check \`${toolName}\` for matching installed public provides before generating new code.
-- Prefer reusing and invoking discovered public provides when they already satisfy the request.`;
+- Prefer reusing and invoking discovered public provides when they already satisfy the request.
+- When the registry is large, prefer \`find_provides\` over scanning the full registry dump.`;
 }
 
 // Keep this helper internal and tiny: it only appends one short turn-level nudge so
@@ -1118,10 +1120,32 @@ function formatProtocolRegistryResult(registry: ProtocolRegistrySnapshot): strin
     `protocol registry v${registry.protocolVersion}`,
     `nodes: ${registry.nodes.length}`,
     `public provides: ${publicProvides.length}`,
-    "",
-    "available public provides:",
   ];
 
+  if (publicProvides.length > REGISTRY_SUMMARY_THRESHOLD) {
+    const publicProvideCountsByNode = registry.nodes
+      .map((node) => ({
+        nodeId: node.nodeId,
+        publicProvideCount: node.provides.filter((provide) => provide.visibility === "public").length,
+      }))
+      .filter((entry) => entry.publicProvideCount > 0)
+      .sort((a, b) => b.publicProvideCount - a.publicProvideCount || a.nodeId.localeCompare(b.nodeId));
+
+    lines.push("", "nodes by public provide count:");
+    for (const entry of publicProvideCountsByNode) {
+      lines.push(`- ${entry.nodeId}: ${entry.publicProvideCount} public provide${entry.publicProvideCount === 1 ? "" : "s"}`);
+    }
+
+    lines.push(
+      "",
+      "registry is large; narrow with find_provides:",
+      '- {"action":"find_provides","query":{"name":"...","visibility":"public"}}',
+      '- {"action":"find_provides","query":{"tagsAny":["..."],"visibility":"public"}}',
+    );
+    return lines.join("\n");
+  }
+
+  lines.push("", "available public provides:");
   for (const provide of publicProvides) {
     lines.push(summarizeProtocolProvide(provide));
   }
@@ -1175,6 +1199,7 @@ function createProtocolTool(
       "Use this tool to discover Pi Protocol nodes and invoke public provides without needing one tool per provide.",
       "Valid actions are: registry, describe_node, describe_provide, find_provides, invoke.",
       "Start with {\"action\":\"registry\"} when you want a concise catalog of all available public provides.",
+      "If the registry looks large, switch to find_provides by name or tags instead of scanning every available provide.",
       "Prefer deterministic target.nodeId when known. If multiple public providers match and no target is specified, expect ambiguity.",
       "Treat provides as the canonical contract. Internal implementation may be deterministic or agent-backed.",
     ],

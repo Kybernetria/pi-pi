@@ -11,3 +11,5 @@
 - made `protocol` registry output concise and token-efficient so a plain `{ "action": "registry" }` call yields a compact catalog of available public provides
 - fixed a greenfield scaffold flaw where tiny `ping`/`pong` test packages could drift into validation-shaped schemas and handlers, and added a validator guardrail for obviously wrong `ping` contracts
 - normalized `sdkDependency` handling so chat-supplied package names like `@mariozechner/pi-protocol-sdk` no longer corrupt generated dependency entries or README notes
+- made large `protocol` registry calls summarize by node/public-provide counts and steer the agent toward `find_provides` instead of dumping hundreds of provides into context
+- added `docs/guides/adapt-brownfield-to-pi-protocol-prompt.md` as a copy-paste starter prompt for brownfield migration sessions

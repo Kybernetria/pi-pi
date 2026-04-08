@@ -83,6 +83,7 @@ They are not intended to be exposed as public skills by default.
 Reference/example prompt guidance for humans lives at:
 
 - `docs/guides/generate-certified-node-prompt.md`
+- `docs/guides/adapt-brownfield-to-pi-protocol-prompt.md`
 
 That guide is only an example/reference. Users should not need to learn rigid prompt syntax just to describe an extension.
 
@@ -107,6 +108,7 @@ It does **not** yet do full semantic validation, but it now includes a few targe
 - certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
 - the standard `protocol` projection now also installs a tiny per-runtime prompt-awareness hook so top-level chat prefers protocol discovery/reuse before scaffolding new code
 - `protocol` registry output is intentionally concise and token-efficient so a plain registry call can act like a compact capability catalog
+- when the registry gets large, the `protocol` tool summarizes by node/public-provide counts and should be followed by `find_provides` instead of scanning a full provide dump
 - in real Pi runtimes, projection/tool registration should happen during `session_start` or equivalent runtime startup, not raw extension loading
 - the standard `protocol` tool is a projection over the protocol, not the protocol itself
 - `ctx.delegate` is the preferred bound recursive delegation surface because trace, caller, budget, and depth context stay attached automatically

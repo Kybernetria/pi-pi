@@ -4,6 +4,8 @@ import {
   FABRIC_KEY,
   PROTOCOL_AGENT_PROJECTION_KEY,
   PROTOCOL_PROMPT_AWARENESS_KEY,
+  registerProtocolNode,
+  type ProtocolHandler,
   type ProtocolSessionPi,
 } from "../vendor/pi-protocol-sdk.ts";
 
@@ -85,7 +87,7 @@ async function main(): Promise<void> {
   resetProtocolGlobals();
 
   const runtimeA = createPiRuntime();
-  activate(runtimeA as unknown as Parameters<typeof activate>[0]);
+  const fabricA = activate(runtimeA as unknown as Parameters<typeof activate>[0]);
   await runtimeA.emit("session_start", { reason: "regression-a" });
   assert.equal(runtimeA.countTool("protocol"), 1, "protocol tool should register on first runtime session_start");
 
@@ -102,6 +104,40 @@ async function main(): Promise<void> {
   assert.ok(
     !registryText.includes('"registry": {'),
     "registry tool output should be concise text rather than the full nested JSON snapshot",
+  );
+
+  const noopHandler: ProtocolHandler = async () => ({ ok: true });
+  for (let index = 0; index < 25; index += 1) {
+    const nodeId = `test-node-${index}`;
+    registerProtocolNode(runtimeA, fabricA, {
+      manifest: {
+        protocolVersion: "0.1.0",
+        nodeId,
+        purpose: `Synthetic registry scaling fixture ${index}`,
+        provides: Array.from({ length: 4 }, (_value, provideIndex) => ({
+          name: `provide_${provideIndex}`,
+          description: `Fixture provide ${provideIndex}`,
+          handler: `provide_${provideIndex}`,
+          inputSchema: { type: "object" },
+          outputSchema: { type: "object" },
+          visibility: "public",
+          tags: [index % 2 === 0 ? "fixture-even" : "fixture-odd"],
+        })),
+      },
+      handlers: Object.fromEntries(
+        Array.from({ length: 4 }, (_value, provideIndex) => [`provide_${provideIndex}`, noopHandler]),
+      ),
+    });
+  }
+
+  const largeRegistryResult = await protocolToolA?.execute?.("tool-call-2", { action: "registry" });
+  const largeRegistryText = largeRegistryResult?.content?.[0]?.text ?? "";
+  assert.ok(largeRegistryText.includes("nodes by public provide count:"));
+  assert.ok(largeRegistryText.includes("registry is large; narrow with find_provides:"));
+  assert.ok(largeRegistryText.includes("- test-node-0: 4 public provides"));
+  assert.ok(
+    !largeRegistryText.includes("available public provides:"),
+    "large registries should summarize by node/count instead of dumping every provide",
   );
 
   const promptA = await runtimeA.runBeforeAgentStart("Build me a capability if needed.", "BASE");
