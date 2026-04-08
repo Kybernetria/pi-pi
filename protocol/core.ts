@@ -452,13 +452,62 @@ export async function planCertifiedNodeFromDescription(
   };
 }
 
+interface ResolvedSdkDependency {
+  packageName: string;
+  versionSpec: string;
+  display: string;
+}
+
+// Accept either a bare version/range (default package name), a package name, or a package@range
+// spec so top-level chat can be a little sloppy without corrupting package.json output.
+function resolveSdkDependency(spec: string | undefined): ResolvedSdkDependency {
+  const defaultPackageName = "@kyvernitria/pi-protocol-sdk";
+  const trimmed = spec?.trim();
+
+  if (!trimmed) {
+    return {
+      packageName: defaultPackageName,
+      versionSpec: SDK_DEPENDENCY,
+      display: `${defaultPackageName}@${SDK_DEPENDENCY}`,
+    };
+  }
+
+  const scopedMatch = trimmed.match(/^(@[^/]+\/[^@]+)(?:@(.+))?$/);
+  if (scopedMatch) {
+    const packageName = scopedMatch[1];
+    const versionSpec = scopedMatch[2]?.trim() || SDK_DEPENDENCY;
+    return {
+      packageName,
+      versionSpec,
+      display: `${packageName}@${versionSpec}`,
+    };
+  }
+
+  const unscopedMatch = trimmed.match(/^([^@][^@]*?)(?:@(.+))?$/);
+  if (unscopedMatch && trimmed.includes("/")) {
+    const packageName = unscopedMatch[1].trim();
+    const versionSpec = unscopedMatch[2]?.trim() || SDK_DEPENDENCY;
+    return {
+      packageName,
+      versionSpec,
+      display: `${packageName}@${versionSpec}`,
+    };
+  }
+
+  return {
+    packageName: defaultPackageName,
+    versionSpec: trimmed,
+    display: `${defaultPackageName}@${trimmed}`,
+  };
+}
+
 export async function scaffoldCertifiedNode(
   input: ScaffoldCertifiedNodeInput,
 ): Promise<ScaffoldCertifiedNodeOutput> {
   validateScaffoldInput(input);
 
   const packageVersion = input.packageVersion?.trim() || "0.1.0";
-  const sdkDependency = input.sdkDependency?.trim() || SDK_DEPENDENCY;
+  const sdkDependency = resolveSdkDependency(input.sdkDependency);
   const useInlineSchemas = input.useInlineSchemas ?? false;
   const generateDebugCommands = input.generateDebugCommands ?? false;
   const strictTypes = input.strictTypes ?? true;
@@ -494,7 +543,7 @@ export async function scaffoldCertifiedNode(
       type: "module",
       keywords: ["pi-package", "pi-protocol"],
       dependencies: {
-        "@kyvernitria/pi-protocol-sdk": sdkDependency,
+        [sdkDependency.packageName]: sdkDependency.versionSpec,
       },
       peerDependencies: {
         "@mariozechner/pi-coding-agent": "*",
@@ -530,7 +579,7 @@ export async function scaffoldCertifiedNode(
       generateDebugCommands,
     }),
     "protocol/handlers.ts": renderHandlersFile(input.nodeId, input.provides),
-    "README.md": renderReadme(input, useInlineSchemas, generateDebugCommands, sdkDependency, strictTypes),
+    "README.md": renderReadme(input, useInlineSchemas, generateDebugCommands, sdkDependency.display, strictTypes),
   };
 
   if (!useInlineSchemas) {
@@ -544,7 +593,7 @@ export async function scaffoldCertifiedNode(
   return {
     packageName: input.packageName,
     nodeId: input.nodeId,
-    sdkDependency,
+    sdkDependency: sdkDependency.display,
     useInlineSchemas,
     generateDebugCommands,
     strictTypes,
@@ -566,7 +615,7 @@ export async function scaffoldCertifiedNode(
       "This provide returns generated files without writing them to disk.",
       "Use a Pi command projection such as /pi-pi-new if you want operator-driven file writing.",
       "Generated bootstrap ensures the shared fabric and the standard protocol projection by default.",
-      `The generated package stamps @kyvernitria/pi-protocol-sdk@${sdkDependency}. Override sdkDependency for local development if needed.`,
+      `The generated package stamps ${sdkDependency.display}. Override sdkDependency for local development if needed.`,
     ],
   };
 }
@@ -577,7 +626,7 @@ export async function scaffoldCollaboratingNodes(
   validateCollaboratingNodesInput(input);
 
   const packageVersion = input.packageVersion?.trim() || "0.1.0";
-  const sdkDependency = input.sdkDependency?.trim() || SDK_DEPENDENCY;
+  const sdkDependency = resolveSdkDependency(input.sdkDependency);
   const strictTypes = input.strictTypes ?? true;
   const generateDebugCommands = input.generateDebugCommands ?? false;
   const generateInternalPromptFiles = input.generateInternalPromptFiles ?? input.workerMode === "agent-backed";
@@ -645,7 +694,7 @@ export async function scaffoldCollaboratingNodes(
       packageName: input.managerPackageName,
       nodeId: input.managerNodeId,
       purpose: managerManifest.purpose,
-      sdkDependency,
+      sdkDependency: sdkDependency.display,
       strictTypes,
       generateDebugCommands,
       collaborationRole: "manager",
@@ -679,7 +728,7 @@ export async function scaffoldCollaboratingNodes(
       packageName: input.workerPackageName,
       nodeId: input.workerNodeId,
       purpose: workerManifest.purpose,
-      sdkDependency,
+      sdkDependency: sdkDependency.display,
       strictTypes,
       generateDebugCommands,
       collaborationRole: "worker",
@@ -701,7 +750,7 @@ export async function scaffoldCollaboratingNodes(
   });
 
   return {
-    sdkDependency,
+    sdkDependency: sdkDependency.display,
     strictTypes,
     generateDebugCommands,
     workerMode: input.workerMode,
@@ -762,6 +811,43 @@ export async function scaffoldCollaboratingNodes(
       "The worker may implement its provide deterministically or with an internal agent-backed-ready pattern while keeping the same protocol contract.",
     ],
   };
+}
+
+async function resolveSchemaObject(
+  packageDir: string,
+  schema: string | JSONSchemaLite | undefined,
+): Promise<JSONSchemaLite | null> {
+  if (!schema) return null;
+  if (typeof schema === "object") return schema;
+
+  const schemaPath = path.resolve(packageDir, schema);
+  if (!(await exists(schemaPath))) return null;
+
+  try {
+    return JSON.parse(await fs.readFile(schemaPath, "utf8")) as JSONSchemaLite;
+  } catch {
+    return null;
+  }
+}
+
+function schemaRequiresProperty(schema: JSONSchemaLite | null, propertyName: string): boolean {
+  return Array.isArray(schema?.required) && schema.required.includes(propertyName);
+}
+
+function schemaHasProperty(schema: JSONSchemaLite | null, propertyName: string): boolean {
+  return !!schema?.properties && propertyName in schema.properties;
+}
+
+function schemaLooksLikePingContract(
+  inputSchema: JSONSchemaLite | null,
+  outputSchema: JSONSchemaLite | null,
+): boolean {
+  return (
+    !schemaRequiresProperty(inputSchema, "targetPath") &&
+    !schemaHasProperty(outputSchema, "pass") &&
+    !schemaHasProperty(outputSchema, "findings") &&
+    schemaHasProperty(outputSchema, "response")
+  );
 }
 
 export async function validateCertifiedNode(
@@ -992,6 +1078,19 @@ export async function validateCertifiedNode(
             suggestedFix: `Use a JSON schema object or a relative schema file path for ${schemaLabel}.`,
           });
         }
+      }
+
+      const inputSchemaObject = await resolveSchemaObject(packageDir, provide.inputSchema);
+      const outputSchemaObject = await resolveSchemaObject(packageDir, provide.outputSchema);
+
+      // Tiny semantic guardrail: a package may be structurally valid yet still obviously wrong,
+      // e.g. a provide named "ping" with validation-style targetPath/pass/findings fields.
+      if (provide.name === "ping" && !schemaLooksLikePingContract(inputSchemaObject, outputSchemaObject)) {
+        violations.push({
+          rule: "provide.semantic.ping",
+          message: "Provide ping does not look like a ping/pong contract",
+          suggestedFix: "Use a lightweight ping schema, e.g. optional note input and output containing response: \"pong\" instead of validation-style fields such as targetPath, pass, or findings.",
+        });
       }
     }
   }
@@ -1297,6 +1396,7 @@ function mentionsAny(value: string, needles: string[]): boolean {
 }
 
 type InferredProvideKind =
+  | "ping"
   | "summarize"
   | "search"
   | "validate"
@@ -1323,7 +1423,7 @@ function inferBaseNameFromBrief(brief: string): string {
     return capabilityKinds.length > 1 ? "docs-workbench" : "docs-assistant";
   }
   if (mentionsAny(brief, ["research"])) return "research";
-  if (mentionsAny(brief, ["validate", "validation"])) return "validator";
+  if (isValidationIntent(brief)) return "validator";
   if (mentionsAny(brief, ["search"])) return "search";
 
   const tokens = brief
@@ -1335,12 +1435,25 @@ function inferBaseNameFromBrief(brief: string): string {
   return tokens.length > 0 ? tokens.join("-") : "planned-node";
 }
 
+// Keep validation detection narrower than plain English "checks" so tiny ping/smoke-test
+// packages do not accidentally get validation-shaped schemas and handlers.
+function isValidationIntent(value: string): boolean {
+  return (
+    mentionsAny(value, ["validate", "validation", "verify", "lint", "compliance", "conformance"]) ||
+    (mentionsAny(value, ["check", "checks", "checking"]) &&
+      mentionsAny(value, ["package", "repo", "repository", "manifest", "schema", "types", "wiring", "bootstrap", "compliance"]))
+  );
+}
+
 function detectCapabilityKinds(brief: string): InferredProvideKind[] {
   const detected = new Set<InferredProvideKind>();
 
+  if (mentionsAny(brief, ["ping", "pong", "heartbeat", "healthcheck", "health check", "smoke test"])) {
+    detected.add("ping");
+  }
   if (mentionsAny(brief, ["summary", "summarize", "summarise"])) detected.add("summarize");
   if (mentionsAny(brief, ["search", "find", "lookup", "grep", "research", "investigate"])) detected.add("search");
-  if (mentionsAny(brief, ["validate", "validation", "verify", "lint", "check"])) detected.add("validate");
+  if (isValidationIntent(brief)) detected.add("validate");
   if (mentionsAny(brief, ["todo", "todos", "task list", "tasks", "action items", "extract task"])) {
     detected.add("extract_tasks");
   }
@@ -1365,6 +1478,12 @@ function inferCandidateProvidesFromBrief(brief: string): ScaffoldProvideInput[] 
 
   for (const kind of kinds) {
     switch (kind) {
+      case "ping":
+        pushProvide({
+          name: "ping",
+          description: "Return a simple pong response for protocol alignment or smoke-test checks.",
+        });
+        break;
       case "summarize":
         pushProvide({
           name: mentionsAny(brief, ["markdown", "notes", "docs", "documents"]) ? "summarize_notes" : "summarize_content",
@@ -1422,6 +1541,9 @@ function inferCandidateProvidesFromBrief(brief: string): ScaffoldProvideInput[] 
 }
 
 function inferSingleNodePurpose(brief: string, baseName: string, provides: ScaffoldProvideInput[]): string {
+  if (provides.some((provide) => provide.name === "ping")) {
+    return "Provides a tiny ping/pong protocol surface for smoke tests and protocol-alignment checks.";
+  }
   if (provides.some((provide) => provide.name === "summarize_notes")) {
     return "Summarizes markdown notes through a TypeScript-first certified protocol package.";
   }
@@ -1446,14 +1568,14 @@ function inferSingleNodePurpose(brief: string, baseName: string, provides: Scaff
 function inferManagerProvideName(brief: string): string {
   if (mentionsAny(brief, ["research", "search", "findings", "investigate"])) return "delegate_research";
   if (mentionsAny(brief, ["summary", "summarize", "summarise"])) return "delegate_summary";
-  if (mentionsAny(brief, ["validate", "validation", "verify", "check"])) return "delegate_validation";
+  if (isValidationIntent(brief)) return "delegate_validation";
   return "delegate_task";
 }
 
 function inferWorkerProvideName(brief: string): string {
   if (mentionsAny(brief, ["research", "search", "findings", "investigate"])) return "perform_research";
   if (mentionsAny(brief, ["summary", "summarize", "summarise"])) return "perform_summary";
-  if (mentionsAny(brief, ["validate", "validation", "verify", "check"])) return "perform_validation";
+  if (isValidationIntent(brief)) return "perform_validation";
   return "do_task";
 }
 
@@ -1485,9 +1607,10 @@ const COMMON_BRIEF_STOPWORDS = new Set([
 
 function inferProvideKind(provide: ScaffoldProvideInput): InferredProvideKind {
   const signature = `${provide.name} ${provide.description}`.toLowerCase();
+  if (provide.name === "ping" || mentionsAny(signature, [" ping", "ping ", "pong", "heartbeat", "healthcheck", "health check"])) return "ping";
   if (mentionsAny(signature, ["summary", "summarize", "summarise"])) return "summarize";
   if (mentionsAny(signature, ["search", "find", "lookup", "grep", "research"])) return "search";
-  if (mentionsAny(signature, ["validate", "validation", "verify", "check", "lint"])) return "validate";
+  if (isValidationIntent(signature)) return "validate";
   if (mentionsAny(signature, ["task", "todo", "action items"])) return "extract_tasks";
   if (mentionsAny(signature, ["answer", "question", "q&a", "qa"])) return "answer";
   if (mentionsAny(signature, ["classify", "classification", "categorize", "categorise", "tag"])) return "classify";
@@ -1496,6 +1619,27 @@ function inferProvideKind(provide: ScaffoldProvideInput): InferredProvideKind {
 
 function inferProvideBlueprint(provide: ScaffoldProvideInput): InferredProvideBlueprint {
   switch (inferProvideKind(provide)) {
+    case "ping":
+      return {
+        kind: "ping",
+        inputSchema: {
+          type: "object",
+          properties: {
+            note: { type: "string", description: "Optional caller note to echo back with the pong response." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "response"],
+          properties: {
+            status: { type: "string", enum: ["ok"], description: "Ping completed successfully." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            response: { type: "string", enum: ["pong"], description: "Canonical ping response." },
+            echoedNote: { type: "string", description: "Optional caller note echoed back by the starter handler." },
+          },
+        },
+      };
     case "summarize":
       return {
         kind: "summarize",
@@ -1791,7 +1935,7 @@ function createCollaboratingPackageFiles(options: {
   packageName: string;
   nodeId: string;
   packageVersion: string;
-  sdkDependency: string;
+  sdkDependency: ResolvedSdkDependency;
   strictTypes: boolean;
   generateDebugCommands: boolean;
   manifest: PiProtocolManifest;
@@ -1807,7 +1951,7 @@ function createCollaboratingPackageFiles(options: {
       type: "module",
       keywords: ["pi-package", "pi-protocol"],
       dependencies: {
-        "@kyvernitria/pi-protocol-sdk": options.sdkDependency,
+        [options.sdkDependency.packageName]: options.sdkDependency.versionSpec,
       },
       peerDependencies: {
         "@mariozechner/pi-coding-agent": "*",
@@ -1914,6 +2058,28 @@ function renderProvideHandlerBlock(nodeId: string, provide: ScaffoldProvideInput
   const blueprint = inferProvideBlueprint(provide);
 
   switch (blueprint.kind) {
+    case "ping":
+      return `interface ${baseName}Input {
+  note?: string;
+}
+
+interface ${baseName}Output {
+  status: "ok";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  response: "pong";
+  echoedNote?: string;
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  return {
+    status: "ok",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    response: "pong",
+    echoedNote: typeof input.note === "string" ? input.note : undefined,
+  };
+};`;
     case "summarize":
       return `interface ${baseName}Input {
   text?: string;
@@ -2290,7 +2456,7 @@ ${options.purpose}
 - worker mode: ${options.workerMode}
 - debug commands: ${options.generateDebugCommands ? "enabled" : "disabled"}
 - strict TypeScript: ${options.strictTypes ? "enabled" : "disabled"}
-- SDK dependency: @kyvernitria/pi-protocol-sdk@${options.sdkDependency}
+- SDK dependency: ${options.sdkDependency}
 
 ## Notes
 
@@ -2338,7 +2504,7 @@ ${input.purpose}
 - schema mode: ${useInlineSchemas ? "inline" : "file-based"}
 - debug commands: ${generateDebugCommands ? "enabled" : "disabled"}
 - strict TypeScript: ${strictTypes ? "enabled" : "disabled"}
-- SDK dependency: @kyvernitria/pi-protocol-sdk@${sdkDependency}
+- SDK dependency: ${sdkDependency}
 
 ## Provides
 
@@ -2351,7 +2517,7 @@ ${input.provides.map((provide) => `- ${provide.name}: ${provide.description}`).j
 - Generated bootstrap ensures the shared fabric and the standard protocol projection by default.
 - Pi commands, tools, and other UI surfaces remain projections over the protocol rather than the protocol itself.
 - If nested protocol calls are introduced later, prefer the bound ` + "`ctx.delegate.invoke(...)`" + ` surface.
-- If you are developing locally against an unpublished SDK, replace ` + "`@kyvernitria/pi-protocol-sdk`" + ` with a local path or workspace dependency.
+- If you are developing locally against an unpublished SDK, replace the SDK package dependency with a local path or workspace dependency.
 - The current validator is AST-assisted and source-based. It is not full semantic validation yet.
 
 ## Local checklist

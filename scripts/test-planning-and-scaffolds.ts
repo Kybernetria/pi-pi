@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   planCertifiedNodeFromDescription,
   scaffoldCertifiedNode,
+  validateCertifiedNode,
   type PlanCertifiedNodeFromDescriptionOutput,
   type ScaffoldCertifiedNodeOutput,
+  type ValidateCertifiedNodeOutput,
 } from "../protocol/core.ts";
 
 function requireOk<T>(value: T | undefined, message: string): T {
@@ -45,6 +50,115 @@ async function main(): Promise<void> {
   assert.ok(searchInputSchema.includes('"query"'));
   assert.ok(summarizeOutputSchema.includes('"summary"'));
   assert.ok(extractTasksOutputSchema.includes('"tasks"'));
+
+  // A direct ping scaffold request should stay ping-shaped instead of drifting into validation semantics.
+  const pingScaffold = (await scaffoldCertifiedNode({
+    packageName: "pi-ping-test",
+    nodeId: "pi-ping-test",
+    purpose: "A simple protocol-aligned test package with one ping provide.",
+    provides: [
+      {
+        name: "ping",
+        description: "Return a simple pong response for protocol alignment checks.",
+      },
+    ],
+    useInlineSchemas: true,
+    sdkDependency: "@mariozechner/pi-protocol-sdk",
+  })) as ScaffoldCertifiedNodeOutput;
+
+  assert.equal(pingScaffold.sdkDependency, "@mariozechner/pi-protocol-sdk@^0.1.0");
+  assert.ok(pingScaffold.files["package.json"].includes('"@mariozechner/pi-protocol-sdk": "^0.1.0"'));
+  assert.ok(pingScaffold.files["pi.protocol.json"].includes('"response"'));
+  assert.ok(!pingScaffold.files["pi.protocol.json"].includes('"targetPath"'));
+  assert.ok(!pingScaffold.files["pi.protocol.json"].includes('"findings"'));
+  assert.ok(pingScaffold.files["protocol/handlers.ts"].includes('response: "pong"'));
+  assert.ok(!pingScaffold.files["protocol/handlers.ts"].includes("todo: validate"));
+
+  // The validator should now catch a ping provide that secretly uses validation-shaped schemas.
+  const badPingDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-bad-ping-"));
+  await fs.mkdir(path.join(badPingDir, "extensions"), { recursive: true });
+  await fs.mkdir(path.join(badPingDir, "protocol"), { recursive: true });
+  await fs.writeFile(
+    path.join(badPingDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "bad-ping",
+        version: "0.1.0",
+        type: "module",
+        pi: { extensions: ["./extensions"] },
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(badPingDir, "pi.protocol.json"),
+    JSON.stringify(
+      {
+        protocolVersion: "0.1.0",
+        nodeId: "bad-ping",
+        purpose: "Bad ping example.",
+        provides: [
+          {
+            name: "ping",
+            description: "Return pong.",
+            handler: "ping",
+            inputSchema: {
+              type: "object",
+              required: ["targetPath"],
+              properties: { targetPath: { type: "string" } },
+            },
+            outputSchema: {
+              type: "object",
+              required: ["status", "provide", "nodeId", "pass", "findings"],
+              properties: {
+                status: { type: "string" },
+                provide: { type: "string" },
+                nodeId: { type: "string" },
+                pass: { type: "boolean" },
+                findings: { type: "array", items: { type: "object" } },
+              },
+            },
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(badPingDir, "extensions", "index.ts"),
+    `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { ensureProtocolAgentProjection, ensureProtocolFabric, registerProtocolNode, type ProtocolAgentProjectionTarget } from "@kyvernitria/pi-protocol-sdk";
+import manifest from "../pi.protocol.json" with { type: "json" };
+import * as handlers from "../protocol/handlers.ts";
+export default function activate(pi: ExtensionAPI) {
+  const fabric = ensureProtocolFabric(pi);
+  pi.on("session_start", async () => {
+    ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
+    registerProtocolNode(pi, fabric, { manifest, handlers });
+  });
+  pi.on("session_shutdown", async () => {
+    fabric.unregisterNode(manifest.nodeId);
+  });
+  return fabric;
+}
+`,
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(badPingDir, "protocol", "handlers.ts"),
+    `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
+export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: "ping", nodeId: ctx.calleeNodeId, pass: false, findings: [] });
+`,
+    "utf8",
+  );
+
+  const badPingValidation = (await validateCertifiedNode({ packageDir: badPingDir })) as ValidateCertifiedNodeOutput;
+  assert.equal(badPingValidation.pass, false);
+  assert.ok(badPingValidation.violatedRules.some((rule) => rule.rule === "provide.semantic.ping"));
 
   // A research-flavored brief with explicit collaboration language should choose a pair.
   const researchPairPlan = (await planCertifiedNodeFromDescription({

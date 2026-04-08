@@ -100,7 +100,7 @@ It checks things like:
 - forbidden direct certified-node imports
 - non-standalone dependency specs such as `file:`, `link:`, and `workspace:`
 
-It does **not** yet do full semantic validation.
+It does **not** yet do full semantic validation, but it now includes a few targeted semantic guardrails such as catching an obviously wrong `ping` contract that drifts into validation-shaped schemas.
 
 ## Runtime model notes
 

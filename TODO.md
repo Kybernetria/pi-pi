@@ -48,7 +48,7 @@ Current gap:
 ## P2 - strengthen validation and test coverage
 
 - [ ] add failure-fixture tests for validator edge cases
-- [ ] extend validation to catch more semantic mismatches between manifest, handlers, and schemas
+- [x] extend validation to catch more semantic mismatches between manifest, handlers, and schemas
 - [x] add a regression test for prompt-awareness registration
 - [x] add a regression test for `protocol` projection registration
 - [x] keep `npm run demo` and `npm run demo:pair-runtime` passing
@@ -56,7 +56,7 @@ Current gap:
 ## P2 - polish developer workflow
 
 - [x] keep a short changelog note for any protocol-shape changes
-- [ ] keep README / guides synced with the actual generator behavior
+- [x] keep README / guides synced with the actual generator behavior
 - [ ] keep internal prompt files clearly separated from public skills
 - [ ] keep prompt instructions compact and context-efficient
 

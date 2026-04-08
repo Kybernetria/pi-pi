@@ -9,3 +9,5 @@
 - added regression and planning/scaffold verification scripts: `npm run test:regressions` and `npm run test:planning`
 - added `npm run test:sdk-session` to verify the standard `protocol` projection and prompt-awareness helper inside a real Pi SDK `AgentSession`
 - made `protocol` registry output concise and token-efficient so a plain `{ "action": "registry" }` call yields a compact catalog of available public provides
+- fixed a greenfield scaffold flaw where tiny `ping`/`pong` test packages could drift into validation-shaped schemas and handlers, and added a validator guardrail for obviously wrong `ping` contracts
+- normalized `sdkDependency` handling so chat-supplied package names like `@mariozechner/pi-protocol-sdk` no longer corrupt generated dependency entries or README notes
