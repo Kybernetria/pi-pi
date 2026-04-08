@@ -28,6 +28,7 @@ Please do this in phases:
    - propose public provide names
    - propose input/output schemas
    - keep contracts typed, compact, and stable
+   - if the repo needs internal orchestration, use native node-local handoff with a compact visible indicator and separate structured detail records
    - keep internal prompts/instructions non-public unless there is a strong reason otherwise
 
 4. Implement the migration incrementally
@@ -48,6 +49,7 @@ Important constraints:
 - keep the package installable and TypeScript-first
 - if the repo already exposes a useful capability, preserve its intent in the protocol contract
 - if something is ambiguous, stop and present the migration options before making a large rewrite
+- do not require raw transcript/chain-of-thought as a protocol contract; keep expanded handoff traces structured and separate from the compact result boundary
 
 At the start, give me:
 - a short summary of what this repo appears to do

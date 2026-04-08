@@ -14,7 +14,8 @@ It should only guide internal planning/runtime behavior.
   - deterministic implementation first
   - one meaningful public provide unless the brief clearly needs more
 - Keep the protocol capability-first.
-- Treat commands, tools, and prompts as projections or internals, not the canonical protocol contract.
+- Treat commands, tools, prompts, and host disclosure behavior as projections or internals, not the canonical protocol contract.
 - Keep internal prompts/instructions non-public by default.
+- Node-local handoff is a runtime/internal orchestration surface: keep the compact result boundary separate from any expanded handoff details.
 - Only recommend a collaborating pair when the brief clearly implies delegation or separable responsibilities.
 - Do not silently switch to local file creation when an extension-building request cannot stay on the protocol path; surface the missing capability explicitly.

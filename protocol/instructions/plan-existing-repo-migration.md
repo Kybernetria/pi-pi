@@ -10,6 +10,7 @@ Use this internal instruction when pi-pi inspects an existing repository for mig
 - Keep the plan deterministic and source-based.
 - Be explicit about heuristic inferences versus guaranteed findings.
 - If the repo clearly splits orchestration from worker behavior, recommend a collaborating pair; otherwise prefer one node.
+- If the repo needs internal orchestration, prefer native node-local handoff with a compact indicator and separate structured detail records, while keeping the compact result boundary opaque by default.
 - Do not expose internal instructions as public skills.
 
 ## Output expectations

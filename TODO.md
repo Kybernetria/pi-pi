@@ -242,14 +242,14 @@ Make Pi Protocol and `pi-pi` behave like a robust, batteries-included, protocol-
   - include simple running/done/failed state when available
 - [x] make handoff UI **collapsed by default, expandable on demand**
   - keep the compact validated result boundary separate from the expanded handoff trace
-  - use the disclosure payload shape so Pi can bind `Ctrl+O`-style open/close later
+  - use the disclosure payload shape so Pi can reuse its existing disclosure UX
 - [x] expanded handoff should show **structured recorded handoff trace/events**, not raw hidden chain-of-thought as a protocol requirement
   - handoff lifecycle
   - detail events / emitted notes
   - nested protocol/tool calls when recorded
   - redacted by default when `opaque: true`
   - richer expansion allowed when `opaque: false`
-- [ ] wire the host `Ctrl+O` disclosure action to the new handoff detail surface
+- [ ] wire the host disclosure action to the new handoff detail surface (handled in Pi base layer, not in this repo)
 - [ ] finish brownfield-upgrade behavior beyond full replacement mode
 - [ ] update the ecosystem builder spec so the builder model is fully canonical
 
@@ -282,8 +282,8 @@ Implemented so far:
 
 Still worth doing next:
 
-- host-visible collapsed handoff indicator UX is now data-shaped and ready for host binding
-- `Ctrl+O`-style open/close handoff disclosure in Pi still needs a host-side binding
+- host-visible collapsed handoff indicator UX is now data-shaped and ready for host reuse
 - expanded structured handoff trace rendering from provenance entries is now available via `handoff_detail`
+- host disclosure reuse is handled by Pi base-layer UI conventions rather than this repo
 - final ecosystem-spec cleanup
 - more nuanced brownfield upgrade flow beyond replace-and-certify

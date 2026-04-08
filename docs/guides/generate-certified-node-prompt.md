@@ -13,6 +13,7 @@ When useful, mention:
 - whether a simple local command would help operators
 - whether it should remain deterministic or use agent-backed internals
 - whether it should be one node or a collaborating pair
+- whether internal orchestration should use native node-local handoff with a compact visible indicator and separate structured detail records
 
 ## Example brief
 
@@ -26,6 +27,8 @@ When useful, mention:
 
 The public contract is still typed protocol provides.
 
+If internal orchestration is needed, keep the compact result boundary separate from expanded handoff details and keep `opaque` as the default boundary when appropriate.
+
 Current public builder surface:
 
 - `build_certified_extension`
@@ -38,4 +41,4 @@ Reuse-or-stop rule:
 - if it fails, surface that failure compactly
 - do not switch to an improvised non-certified fallback after discovery
 
-Commands, tools, and internal instruction files are projections or internals, not the protocol itself.
+Commands, tools, internal instruction files, and disclosure behavior are projections or internals, not the protocol itself.

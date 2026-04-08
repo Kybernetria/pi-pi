@@ -14,6 +14,7 @@ Non-negotiable requirements:
 - Keep deterministic-first as the default implementation policy.
 - Integrate node-local subagent handoff natively into the protocol/runtime.
 - Make opaque handoff the default cross-node mental model/result boundary.
+- Emit a compact visible handoff indicator plus separate structured detail records so host disclosure UIs can collapse by default and expand on demand.
 - Ensure `pi-pi` exposes only a small public builder surface.
 - Move planning/scaffold/migration/pair/alias internals behind internal provides or internal implementation.
 - Ensure outputs produced by `pi-pi` are protocol-certified by default.
@@ -35,7 +36,7 @@ Read first:
 Primary tasks:
 1. simplify `pi-pi` public API down to a small authoritative builder surface
 2. make low-level builder stages internal
-3. add/finish native protocol subagent handoff support with opaque result boundaries
+3. add/finish native protocol subagent handoff support with opaque result boundaries and structured disclosure surfaces
 4. enforce caller reuse-or-stop behavior
 5. add end-to-end tests from fresh repo sessions
 6. update spec/docs so the model is explicit and no longer ambiguous
@@ -68,5 +69,5 @@ Output expectations for this session:
   - files changed
   - what was simplified
   - what was made internal/public
-  - how the new handoff behavior works
+  - how the new handoff behavior works, including the compact indicator and expanded structured details
   - how to test it

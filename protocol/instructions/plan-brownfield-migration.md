@@ -10,4 +10,5 @@ Prefer `protocol/instructions/plan-existing-repo-migration.md` for the active pl
 - Prefer reuse over replacement.
 - Keep the plan deterministic and source-based.
 - Be explicit about heuristic inferences versus guaranteed findings.
+- If the existing repo needs internal orchestration, keep the compact result boundary separate from expanded handoff details.
 - Do not expose internal instructions as public skills.
