@@ -30,10 +30,12 @@ interface TestPiRuntime extends ProtocolSessionPi {
   emit: (event: string, payload?: unknown) => Promise<void>;
   runBeforeAgentStart: (prompt: string, systemPrompt: string) => Promise<string>;
   registerTool: (tool: RegisteredTool) => void;
+  registerMessageRenderer: (customType: string, renderer: unknown) => void;
   registerCommand?: (name: string, command: unknown) => void;
   getAllTools: () => RegisteredTool[];
   getActiveTools: () => string[];
   countTool: (toolName: string) => number;
+  getMessageRendererTypes: () => string[];
 }
 
 function resetProtocolGlobals(): void {
@@ -45,6 +47,7 @@ function resetProtocolGlobals(): void {
 function createPiRuntime(): TestPiRuntime {
   const listeners = new Map<string, EventHandler[]>();
   const tools: RegisteredTool[] = [];
+  const messageRendererTypes: string[] = [];
 
   return {
     appendEntry() {
@@ -78,6 +81,9 @@ function createPiRuntime(): TestPiRuntime {
     registerTool(tool: RegisteredTool) {
       tools.push(tool);
     },
+    registerMessageRenderer(customType: string) {
+      messageRendererTypes.push(customType);
+    },
     getAllTools() {
       return [...tools];
     },
@@ -86,6 +92,9 @@ function createPiRuntime(): TestPiRuntime {
     },
     countTool(toolName: string) {
       return tools.filter((tool) => tool.name === toolName).length;
+    },
+    getMessageRendererTypes() {
+      return [...messageRendererTypes];
     },
   } as TestPiRuntime;
 }
@@ -121,6 +130,10 @@ async function main(): Promise<void> {
   const fabric = activate(runtime as unknown as Parameters<typeof activate>[0]);
   await runtime.emit("session_start", { reason: "regression-a" });
   assert.equal(runtime.countTool("protocol"), 1, "protocol tool should register on first runtime session_start");
+  assert.ok(
+    runtime.getMessageRendererTypes().includes("protocol-handoff"),
+    "handoff should register a normal-session message renderer",
+  );
 
   await runtime.emit("session_start", { reason: "regression-a-repeat" });
   assert.equal(runtime.countTool("protocol"), 1, "protocol tool should not duplicate on repeated session_start");

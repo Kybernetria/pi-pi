@@ -1,9 +1,12 @@
 import { Type } from "@mariozechner/pi-ai";
+import { Text } from "@mariozechner/pi-tui";
 
 export const FABRIC_KEY = Symbol.for("pi-protocol.fabric");
 export const PROTOCOL_AGENT_PROJECTION_KEY = Symbol.for("pi-protocol.agent-projection");
 export const PROTOCOL_PROMPT_AWARENESS_KEY = Symbol.for("pi-protocol.prompt-awareness");
+export const PROTOCOL_HANDOFF_RENDERER_KEY = Symbol.for("pi-protocol.handoff-renderer");
 export const PROTOCOL_TOOL_NAME = "protocol";
+const PROTOCOL_HANDOFF_MESSAGE_TYPE = "protocol-handoff";
 const PROTOCOL_PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
 const REGISTRY_SUMMARY_THRESHOLD = 40;
 
@@ -393,10 +396,33 @@ export interface ProtocolHandoffDetailEntry {
   data: unknown;
 }
 
+export interface ProtocolHandoffMessageDetails {
+  label: string;
+  status: ProtocolHandoffIndicatorStatus;
+  handoffId: string;
+  traceId: string;
+  spanId: string;
+  nodeId: string;
+  provide: string;
+  opaque: boolean;
+  brief?: string;
+  startedAt: number;
+  endedAt?: number;
+  error?: {
+    code: ProtocolErrorCode;
+    message: string;
+  };
+  events: ProtocolHandoffDetailEntry[];
+}
+
 export interface ProtocolSessionPi {
   appendEntry?: (kind: string, data: unknown) => void;
   sendMessage?: (message: unknown, options?: unknown) => void;
   events?: unknown;
+}
+
+interface ProtocolMessageRendererLike {
+  (message: { customType: string; content: string | unknown[]; details?: unknown }, options: { expanded: boolean }, theme: any): unknown;
 }
 
 export interface ProtocolFabricOptions {
@@ -406,6 +432,7 @@ export interface ProtocolFabricOptions {
 
 export interface ProtocolAgentProjectionTarget {
   registerTool?: (tool: unknown) => void;
+  registerMessageRenderer?: (customType: string, renderer: ProtocolMessageRendererLike) => void;
   getAllTools?: () => Array<{ name: string }>;
   getActiveTools?: () => string[];
   on?: (
@@ -1262,6 +1289,65 @@ export function ensureProtocolPromptAwareness(
   return { toolName, installed: true };
 }
 
+function renderProtocolHandoffMessage(
+  message: { customType: string; content: string | unknown[]; details?: unknown },
+  options: { expanded: boolean },
+  theme: any,
+): Text {
+  const details = message.details as ProtocolHandoffMessageDetails | undefined;
+  const label = details?.label || (typeof message.content === "string" ? message.content : PROTOCOL_HANDOFF_MESSAGE_TYPE);
+  const status = details?.status ?? "done";
+  const statusColor = status === "failed" ? "error" : status === "running" ? "warning" : "success";
+  let text = theme.fg(statusColor, label);
+  text += theme.fg("dim", ` — ${status}`);
+
+  if (options.expanded && details) {
+    const lines: string[] = [
+      `trace: ${details.traceId}`,
+      `span: ${details.spanId}`,
+      `handoff: ${details.handoffId}`,
+      `node: ${details.nodeId}`,
+      `provide: ${details.provide}`,
+      `opaque: ${details.opaque ? "true" : "false"}`,
+    ];
+
+    if (details.brief) lines.push(`brief: ${details.brief}`);
+    if (details.startedAt) lines.push(`startedAt: ${new Date(details.startedAt).toISOString()}`);
+    if (details.endedAt) lines.push(`endedAt: ${new Date(details.endedAt).toISOString()}`);
+    if (typeof details.error === "object" && details.error) {
+      lines.push(`error: ${details.error.code}: ${details.error.message}`);
+    }
+    if (details.events.length > 0) {
+      lines.push("events:");
+      for (const event of details.events.slice(0, 12)) {
+        const dataText = trimProtocolText(JSON.stringify(event.data), 120);
+        lines.push(`- ${event.eventKind}: ${dataText}`);
+      }
+    }
+
+    text += `\n${theme.fg("dim", lines.join("\n"))}`;
+  }
+
+  return new Text(text, 0, 0);
+}
+
+function ensureProtocolHandoffMessageRenderer(pi: ProtocolAgentProjectionTarget): boolean {
+  if (!pi.registerMessageRenderer) {
+    return false;
+  }
+
+  const target = toRegistrationTarget(pi);
+  const state = getProtocolPerTargetState(PROTOCOL_HANDOFF_RENDERER_KEY);
+  const registeredNames = getRegisteredToolNames(state, target);
+  if (registeredNames?.has(PROTOCOL_HANDOFF_MESSAGE_TYPE)) {
+    return false;
+  }
+
+  pi.registerMessageRenderer(PROTOCOL_HANDOFF_MESSAGE_TYPE, renderProtocolHandoffMessage);
+  registeredNames?.add(PROTOCOL_HANDOFF_MESSAGE_TYPE);
+  return true;
+}
+
 export function ensureProtocolAgentProjection(
   pi: ProtocolAgentProjectionTarget,
   fabric: ProtocolFabric,
@@ -1278,6 +1364,7 @@ export function ensureProtocolAgentProjection(
   if (alreadyRegistered) {
     registeredToolNames?.add(toolName);
     ensureProtocolPromptAwareness(pi, { toolName });
+    ensureProtocolHandoffMessageRenderer(pi);
     return { toolName, registered: false };
   }
 
@@ -1294,6 +1381,7 @@ export function ensureProtocolAgentProjection(
   }));
   registeredToolNames?.add(toolName);
   ensureProtocolPromptAwareness(pi, { toolName });
+  ensureProtocolHandoffMessageRenderer(pi);
 
   return { toolName, registered: true };
 }
@@ -1654,6 +1742,39 @@ function createProtocolNodeLocalHandoffSurface(
       const startedAt = Date.now();
 
       const handoffLabel = `handoff: ${state.calleeNodeId}.${state.provide}`;
+      const handoffDetails: ProtocolHandoffDetailEntry[] = [];
+      const recordDetail = (entry: Omit<ProtocolHandoffDetailEntry, "kind">): void => {
+        const detailEntry: ProtocolHandoffDetailEntry = { kind: "handoff_detail", ...entry };
+        handoffDetails.push(detailEntry);
+        state.appendEntry("protocol", detailEntry);
+      };
+      const emitHandoffMessage = (
+        status: ProtocolHandoffIndicatorStatus,
+        endedAt?: number,
+        error?: { code: ProtocolErrorCode; message: string },
+      ): void => {
+        state.pi.sendMessage?.({
+          customType: PROTOCOL_HANDOFF_MESSAGE_TYPE,
+          content: `${handoffLabel} — ${status}`,
+          display: true,
+          details: {
+            label: handoffLabel,
+            status,
+            handoffId,
+            traceId: state.traceId,
+            spanId: state.spanId,
+            nodeId: state.calleeNodeId,
+            provide: state.provide,
+            opaque: effective.opaque,
+            brief: effective.brief,
+            startedAt,
+            endedAt,
+            error,
+            events: handoffDetails,
+          } satisfies ProtocolHandoffMessageDetails,
+        });
+      };
+
       state.appendEntry("protocol", {
         kind: "handoff_indicator",
         traceId: state.traceId,
@@ -1668,8 +1789,7 @@ function createProtocolNodeLocalHandoffSurface(
         brief: effective.brief,
         startedAt,
       });
-      state.appendEntry("protocol", {
-        kind: "handoff_detail",
+      recordDetail({
         traceId: state.traceId,
         spanId: state.spanId,
         handoffId,
@@ -1703,6 +1823,7 @@ function createProtocolNodeLocalHandoffSurface(
         requestedHandoff: effective,
         record(kind: string, data: unknown) {
           const recordedAt = Date.now();
+          const detailData = effective.opaque ? { redacted: true } : data;
           state.appendEntry("protocol", {
             kind: "handoff_event",
             traceId: state.traceId,
@@ -1712,10 +1833,9 @@ function createProtocolNodeLocalHandoffSurface(
             provide: state.provide,
             eventKind: kind,
             recordedAt,
-            data: effective.opaque ? { redacted: true } : data,
+            data: detailData,
           });
-          state.appendEntry("protocol", {
-            kind: "handoff_detail",
+          recordDetail({
             traceId: state.traceId,
             spanId: state.spanId,
             handoffId,
@@ -1723,7 +1843,7 @@ function createProtocolNodeLocalHandoffSurface(
             provide: state.provide,
             eventKind: kind,
             recordedAt,
-            data: effective.opaque ? { redacted: true } : data,
+            data: detailData,
           });
         },
       };
@@ -1746,8 +1866,7 @@ function createProtocolNodeLocalHandoffSurface(
           startedAt,
           endedAt,
         });
-        state.appendEntry("protocol", {
-          kind: "handoff_detail",
+        recordDetail({
           traceId: state.traceId,
           spanId: state.spanId,
           handoffId,
@@ -1759,10 +1878,15 @@ function createProtocolNodeLocalHandoffSurface(
           recordedAt: endedAt,
           data: { durationMs: endedAt - startedAt, opaque: effective.opaque },
         });
+        emitHandoffMessage("done", endedAt);
         return output;
       } catch (error: unknown) {
         const protocolError = error as { code?: unknown; message?: string };
         const endedAt = Date.now();
+        const errorInfo = {
+          code: toProtocolErrorCode(protocolError?.code),
+          message: protocolError?.message ?? String(error),
+        };
         state.appendEntry("protocol", {
           kind: "handoff_indicator",
           traceId: state.traceId,
@@ -1777,13 +1901,9 @@ function createProtocolNodeLocalHandoffSurface(
           brief: effective.brief,
           startedAt,
           endedAt,
-          error: {
-            code: toProtocolErrorCode(protocolError?.code),
-            message: protocolError?.message ?? String(error),
-          },
+          error: errorInfo,
         });
-        state.appendEntry("protocol", {
-          kind: "handoff_detail",
+        recordDetail({
           traceId: state.traceId,
           spanId: state.spanId,
           handoffId,
@@ -1796,12 +1916,10 @@ function createProtocolNodeLocalHandoffSurface(
           data: {
             durationMs: endedAt - startedAt,
             opaque: effective.opaque,
-            error: {
-              code: toProtocolErrorCode(protocolError?.code),
-              message: protocolError?.message ?? String(error),
-            },
+            error: errorInfo,
           },
         });
+        emitHandoffMessage("failed", endedAt, errorInfo);
         throw error;
       }
     },

@@ -275,7 +275,7 @@ Implemented so far:
 - `pi-pi` public surface reduced to `build_certified_extension`; `validate_certified_extension` and `describe_certified_template` remain internal helper surfaces
 - planning/scaffold/migration/alias stages moved behind internal visibility
 - runtime/SDK gained native `ctx.handoff.run(...)` with bound trace/budget/depth/delegate context
-- handoff now emits a compact visible indicator plus separate structured detail records for collapsed/expanded disclosure, with exported indicator/detail shapes for host reuse
+- handoff now emits a compact visible indicator plus separate structured detail records for collapsed/expanded disclosure, with exported indicator/detail shapes for host reuse and a `protocol-handoff` custom message for normal chat sessions
 - opaque handoff remains the default result boundary
 - public protocol projection hides internal provides
 - caller guidance now enforces reuse-or-stop
@@ -284,7 +284,7 @@ Implemented so far:
 
 Still worth doing next:
 
-- host-visible collapsed handoff indicator UX is now data-shaped and ready for host reuse
+- host-visible collapsed handoff indicator UX is now data-shaped and ready for host reuse in normal chat sessions
 - expanded structured handoff trace rendering from provenance entries is now available via `handoff_detail`
 - host disclosure reuse is handled by Pi base-layer UI conventions rather than this repo
 - final ecosystem-spec cleanup

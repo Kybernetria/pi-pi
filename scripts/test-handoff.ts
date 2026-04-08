@@ -15,16 +15,26 @@ interface Entry {
   data: unknown;
 }
 
+interface CustomMessage {
+  customType: string;
+  content: string;
+  display: boolean;
+  details?: unknown;
+}
+
 function resetProtocolGlobals(): void {
   delete (globalThis as Record<PropertyKey, unknown>)[FABRIC_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_AGENT_PROJECTION_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_PROMPT_AWARENESS_KEY];
 }
 
-function createPi(entries: Entry[]): ProtocolSessionPi {
+function createPi(entries: Entry[], messages: CustomMessage[]): ProtocolSessionPi {
   return {
     appendEntry(kind: string, data: unknown) {
       entries.push({ kind, data });
+    },
+    sendMessage(message: unknown) {
+      messages.push(message as CustomMessage);
     },
   };
 }
@@ -76,7 +86,8 @@ async function main(): Promise<void> {
   resetProtocolGlobals();
 
   const entries: Entry[] = [];
-  const pi = createPi(entries);
+  const messages: CustomMessage[] = [];
+  const pi = createPi(entries, messages);
   const fabric = createProtocolFabric(pi);
 
   registerProtocolNode(pi, fabric, {
@@ -197,6 +208,17 @@ async function main(): Promise<void> {
     .reverse()
     .find((entry) => entry.kind === "handoff_detail" && entry.eventKind === "internal-note");
   assert.deepEqual(visibleHandoffDetail?.data, { secret: "plan:beta" });
+
+  const protocolHandoffMessage = messages.reverse().find((message) => message.customType === "protocol-handoff");
+  assert.ok(protocolHandoffMessage, "handoff should emit a normal-session custom message");
+  assert.equal(protocolHandoffMessage?.display, true);
+  assert.ok(protocolHandoffMessage?.content.includes("handoff: builder-node.orchestrate_task"));
+  const protocolHandoffDetails = protocolHandoffMessage?.details as {
+    status?: string;
+    events?: Array<{ eventKind?: string; data?: unknown }>;
+  };
+  assert.equal(protocolHandoffDetails?.status, "done");
+  assert.ok(protocolHandoffDetails?.events?.some((event) => event.eventKind === "internal-note"));
 
   console.log("node-local handoff runtime passed");
   resetProtocolGlobals();

@@ -73,7 +73,7 @@ Important rules:
 - uses the fabric for recursive calls
 - prefers `ctx.delegate.invoke()` for nested protocol work
 - can use `ctx.handoff.run(...)` for node-local orchestration without leaking internal transcript across node boundaries by default
-- host UIs can render the compact `handoff: <nodeId>.<provide>` indicator and keep expanded details collapsed until a disclosure action opens them
+- handoff emits a `protocol-handoff` custom message so normal chat sessions can show the compact `handoff: <nodeId>.<provide>` indicator inline, with expanded details collapsed until disclosure opens them
 
 ## Reuse-or-stop caller rule
 
