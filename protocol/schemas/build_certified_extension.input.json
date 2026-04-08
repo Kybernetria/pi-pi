@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "required": ["repoDir"],
+  "properties": {
+    "description": { "type": "string" },
+    "brief": { "type": "string" },
+    "repoDir": {
+      "type": "string",
+      "description": "Repository or package directory that should receive the certified build."
+    },
+    "replaceExisting": { "type": "boolean" },
+    "applyChanges": { "type": "boolean" },
+    "allowPair": { "type": "boolean" }
+  }
+}

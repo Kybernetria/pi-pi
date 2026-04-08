@@ -10,10 +10,10 @@ import {
   type ProtocolSessionPi,
 } from "../vendor/pi-protocol-sdk.ts";
 import {
-  scaffoldCollaboratingNodes,
+  scaffoldExtensionPair,
   type ScaffoldCollaboratingNodesOutput,
   type ValidateCertifiedNodeOutput,
-  validateCertifiedNode,
+  validateExtension,
 } from "../protocol/core.ts";
 
 interface Notification {
@@ -216,7 +216,7 @@ async function loadExtension<TActivate>(extensionPath: string): Promise<TActivat
 async function main(): Promise<void> {
   delete (globalThis as Record<PropertyKey, unknown>)[FABRIC_KEY];
 
-  const pair = (await scaffoldCollaboratingNodes({
+  const pair = (await scaffoldExtensionPair({
     managerPackageName: "pi-runtime-manager",
     managerNodeId: "pi-runtime-manager",
     workerPackageName: "pi-runtime-worker",
@@ -235,10 +235,10 @@ async function main(): Promise<void> {
   await writeFiles(workerDir, pair.worker.files);
   await writeSdkPackage(rootDir);
 
-  const managerValidation = (await validateCertifiedNode({
+  const managerValidation = (await validateExtension({
     packageDir: managerDir,
   })) as ValidateCertifiedNodeOutput;
-  const workerValidation = (await validateCertifiedNode({
+  const workerValidation = (await validateExtension({
     packageDir: workerDir,
   })) as ValidateCertifiedNodeOutput;
   printSection("pair_validation", {

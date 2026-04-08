@@ -95,6 +95,16 @@ export interface ProtocolBudget {
   deadlineMs?: number;
 }
 
+export interface ProtocolHandoffDirective {
+  brief?: string;
+  opaque?: boolean;
+}
+
+export interface ProtocolRequestedHandoff {
+  brief?: string;
+  opaque: boolean;
+}
+
 export interface JSONSchemaLite {
   type?: PrimitiveSchemaType | PrimitiveSchemaType[];
   required?: string[];
@@ -223,10 +233,7 @@ export interface ProtocolInvokeRequest<TInput = unknown> {
   routing?: RoutingMode;
   modelHint?: ModelHint;
   budget?: ProtocolBudget;
-  handoff?: {
-    brief?: string;
-    opaque?: boolean;
-  };
+  handoff?: ProtocolHandoffDirective;
 }
 
 export interface ProtocolDelegationBinding {
@@ -249,10 +256,7 @@ export interface ProtocolDelegatedInvokeRequest<TInput = unknown> {
   routing?: RoutingMode;
   modelHint?: ModelHint;
   budget?: ProtocolBudget;
-  handoff?: {
-    brief?: string;
-    opaque?: boolean;
-  };
+  handoff?: ProtocolHandoffDirective;
 }
 
 export interface ProtocolDelegationSurface {
@@ -290,10 +294,7 @@ export interface ProtocolToolInput {
     routing?: RoutingMode;
     modelHint?: ModelHint;
     budget?: ProtocolBudget;
-    handoff?: {
-      brief?: string;
-      opaque?: boolean;
-    };
+    handoff?: ProtocolHandoffDirective;
   };
 }
 
@@ -356,6 +357,42 @@ interface InternalProtocolInvokeRequest<TInput = unknown> extends ProtocolInvoke
   __maxDepth?: number;
 }
 
+export type ProtocolHandoffIndicatorStatus = "running" | "done" | "failed";
+
+export interface ProtocolHandoffIndicatorEntry {
+  kind: "handoff_indicator";
+  traceId: string;
+  spanId: string;
+  handoffId: string;
+  nodeId: string;
+  provide: string;
+  label: string;
+  status: ProtocolHandoffIndicatorStatus;
+  collapsed: true;
+  opaque: boolean;
+  brief?: string;
+  startedAt: number;
+  endedAt?: number;
+  error?: {
+    code: ProtocolErrorCode;
+    message: string;
+  };
+}
+
+export interface ProtocolHandoffDetailEntry {
+  kind: "handoff_detail";
+  traceId: string;
+  spanId: string;
+  handoffId: string;
+  parentSpanId?: string;
+  upstreamCallerNodeId?: string;
+  nodeId: string;
+  provide: string;
+  eventKind: string;
+  recordedAt: number;
+  data: unknown;
+}
+
 export interface ProtocolSessionPi {
   appendEntry?: (kind: string, data: unknown) => void;
   sendMessage?: (message: unknown, options?: unknown) => void;
@@ -389,6 +426,19 @@ export interface ProtocolAgentProjectionOptions {
   description?: string;
 }
 
+export interface ProtocolNodeLocalHandoffContext extends Omit<ProtocolCallContext, "handoff"> {
+  requestedHandoff: ProtocolRequestedHandoff;
+  record: (kind: string, data: unknown) => void;
+}
+
+export interface ProtocolNodeLocalHandoffSurface {
+  requested: ProtocolRequestedHandoff;
+  run<TOutput>(
+    executor: (ctx: ProtocolNodeLocalHandoffContext) => Promise<TOutput>,
+    options?: ProtocolHandoffDirective,
+  ): Promise<TOutput>;
+}
+
 export interface ProtocolPromptAwarenessOptions {
   toolName?: string;
 }
@@ -410,6 +460,7 @@ export interface ProtocolCallContext<TBudget extends ProtocolBudget = ProtocolBu
   modelHint?: ModelHint;
   fabric: ProtocolFabric;
   delegate: ProtocolDelegationSurface;
+  handoff: ProtocolNodeLocalHandoffSurface;
   pi: Required<Pick<ProtocolSessionPi, "appendEntry">> & Omit<ProtocolSessionPi, "appendEntry">;
 }
 
@@ -495,6 +546,24 @@ interface HandlerFabricState {
   depth: number;
   maxDepth: number;
   budget?: ProtocolBudget;
+}
+
+interface ProtocolNodeLocalHandoffState {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  upstreamCallerNodeId: string;
+  calleeNodeId: string;
+  provide: string;
+  depth: number;
+  maxDepth: number;
+  budget?: ProtocolBudget;
+  modelHint?: ModelHint;
+  fabric: ProtocolFabric;
+  delegate: ProtocolDelegationSurface;
+  requested: ProtocolRequestedHandoff;
+  pi: Required<Pick<ProtocolSessionPi, "appendEntry">> & Omit<ProtocolSessionPi, "appendEntry">;
+  appendEntry: (kind: string, data: unknown) => void;
 }
 
 interface ProtocolToolResultDetails {
@@ -705,6 +774,22 @@ export function createProtocolFabric(
         budget,
       });
 
+      const requestedHandoff = normalizeRequestedHandoff(internalReq.handoff);
+      const delegate = createProtocolDelegationSurface(handlerFabric, {
+        callerNodeId: calleeNodeId,
+        traceId,
+        parentSpanId: spanId,
+        budget,
+        modelHint: internalReq.modelHint,
+        depth,
+        maxDepth,
+      });
+      const sessionPi = {
+        appendEntry,
+        sendMessage: pi.sendMessage,
+        events: pi.events,
+      };
+
       const ctx: ProtocolCallContext = {
         traceId,
         spanId,
@@ -717,20 +802,25 @@ export function createProtocolFabric(
         budget,
         modelHint: internalReq.modelHint,
         fabric: handlerFabric,
-        delegate: createProtocolDelegationSurface(handlerFabric, {
-          callerNodeId: calleeNodeId,
+        delegate,
+        handoff: createProtocolNodeLocalHandoffSurface({
           traceId,
-          parentSpanId: spanId,
-          budget,
-          modelHint: internalReq.modelHint,
+          spanId,
+          parentSpanId: internalReq.parentSpanId,
+          upstreamCallerNodeId: internalReq.callerNodeId,
+          calleeNodeId,
+          provide: internalReq.provide,
           depth,
           maxDepth,
-        }),
-        pi: {
+          budget,
+          modelHint: internalReq.modelHint,
+          fabric: handlerFabric,
+          delegate,
+          requested: requestedHandoff,
+          pi: sessionPi,
           appendEntry,
-          sendMessage: pi.sendMessage,
-          events: pi.events,
-        },
+        }),
+        pi: sessionPi,
       };
 
       const startedAt = Date.now();
@@ -838,10 +928,15 @@ function resolveTarget(
 ): ResolutionResult {
   const candidates: Array<{ node: RegisteredNode; provide: ProvideSpec }> = [];
 
+  const allowInternalForTargetNode =
+    !!req.target?.nodeId && req.target.nodeId === req.callerNodeId;
+
   for (const node of nodes.values()) {
     if (req.target?.nodeId && node.manifest.nodeId !== req.target.nodeId) continue;
     for (const provide of node.manifest.provides ?? []) {
-      if ((provide.visibility ?? "public") !== "public") continue;
+      const visibility = provide.visibility ?? "public";
+      const allowInternal = allowInternalForTargetNode && node.manifest.nodeId === req.target?.nodeId;
+      if (visibility === "internal" && !allowInternal) continue;
       if (provide.name !== req.provide) continue;
       candidates.push({ node, provide });
     }
@@ -971,12 +1066,23 @@ export async function handleProtocolToolRequest(
   request: ProtocolToolRequest,
 ): Promise<ProtocolToolResult> {
   switch (request.action) {
-    case "registry":
+    case "registry": {
+      const registry = surface.registry();
       return {
         ok: true,
         action: "registry",
-        registry: surface.registry(),
+        registry: {
+          ...registry,
+          nodes: registry.nodes
+            .map((node) => ({
+              ...node,
+              provides: node.provides.filter((provide) => provide.visibility === "public"),
+            }))
+            .filter((node) => node.provides.length > 0),
+          provides: registry.provides.filter((provide) => provide.visibility === "public"),
+        },
       };
+    }
 
     case "describe_node": {
       const node = surface.describeNode(request.nodeId);
@@ -994,7 +1100,10 @@ export async function handleProtocolToolRequest(
       return {
         ok: true,
         action: "describe_node",
-        node,
+        node: {
+          ...node,
+          provides: node.provides.filter((provide) => provide.visibility === "public"),
+        },
       };
     }
 
@@ -1108,10 +1217,12 @@ export function classifyProtocolRoutingIntent(prompt: string): ProtocolRoutingIn
 function renderProtocolPromptAwareness(toolName: string): string {
   return `${PROTOCOL_PROMPT_AWARENESS_MARKER}
 - Route simple questions, explanations, and quick lookups directly; do not force protocol discovery when it is unnecessary.
-- For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses code, check \`${toolName}\` first for matching installed public provides before doing local work.
+- For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses extension code, check \`${toolName}\` first for matching installed public provides before doing local work.
 - Prefer reusing and invoking discovered public provides when they already satisfy the request.
+- If discovery finds a matching public builder provide, invoke it and keep the work on that certified path.
+- If a matching builder provide fails or is insufficient, stop and surface that failure explicitly instead of improvising a non-certified local fallback.
 - Use tiered discovery: start with the compact node-level registry, then inspect likely nodes with \`describe_node\`, then inspect exact contracts with \`describe_provide\`.
-- If no installed capability fits, proceed directly with generation, deletion, or explanation instead of forcing a protocol match.
+- If no installed capability fits for an extension-building request, stop and surface that failure explicitly instead of silently creating files locally.
 - When the registry is large, prefer \`find_provides\` over scanning the full registry dump.`;
 }
 
@@ -1294,9 +1405,13 @@ function formatProtocolProvideResult(provide: ProtocolProvideDescription): strin
   }
 
   lines.push(
-    `inputSchema: ${typeof provide.inputSchema === "string" ? provide.inputSchema : JSON.stringify(provide.inputSchema)}`,
-    `outputSchema: ${typeof provide.outputSchema === "string" ? provide.outputSchema : JSON.stringify(provide.outputSchema)}`,
+    `inputSchema: ${typeof provide.inputSchema === "string" ? `node-local manifest path ${provide.inputSchema}` : JSON.stringify(provide.inputSchema)}`,
+    `outputSchema: ${typeof provide.outputSchema === "string" ? `node-local manifest path ${provide.outputSchema}` : JSON.stringify(provide.outputSchema)}`,
   );
+
+  if (typeof provide.inputSchema === "string" || typeof provide.outputSchema === "string") {
+    lines.push("schema note: string schema paths are relative to the providing node package, not the caller cwd");
+  }
 
   return lines.join("\n");
 }
@@ -1350,11 +1465,12 @@ function createProtocolTool(
     promptGuidelines: [
       "Use this tool to discover Pi Protocol nodes and invoke public provides without needing one tool per provide.",
       "Valid actions are: registry, describe_node, describe_provide, find_provides, invoke.",
-      "Route simple questions directly; use protocol discovery first for any create, edit, delete, build, modify, integrate, migrate, validate, or reuse request.",
+      "Route simple questions directly; for any create, edit, delete, build, modify, integrate, migrate, validate, or reuse request, stay on the protocol path first.",
       "Start with {\"action\":\"registry\"} when you want a concise node-level capability catalog.",
       "Use tiered discovery: registry -> describe_node -> describe_provide -> invoke.",
       "If the registry looks large, switch to find_provides by name or tags instead of scanning every available provide.",
-      "If no installed capability fits, proceed directly instead of forcing a protocol match.",
+      "If discovery finds a matching public builder provide, invoke it and do not freestyle a non-certified fallback afterward.",
+      "If no installed capability fits for an extension-building request, stop and surface that failure explicitly instead of silently creating files locally.",
       "Prefer deterministic target.nodeId when known. If multiple public providers match and no target is specified, expect ambiguity.",
       "Treat provides as the canonical contract. Internal implementation may be deterministic or agent-backed.",
     ],
@@ -1442,15 +1558,17 @@ function parseProtocolToolInput(input: ProtocolToolInput): ProtocolToolRequest {
         nodeId: input.nodeId,
       };
 
-    case "describe_provide":
+    case "describe_provide": {
       if (!input.nodeId?.trim() || !input.provide?.trim()) {
         throw new Error("protocol tool action describe_provide requires nodeId and provide");
       }
+      const normalizedProvide = normalizeRequestedProvideName(input.provide, input.nodeId).provide;
       return {
         action: "describe_provide",
         nodeId: input.nodeId,
-        provide: input.provide,
+        provide: normalizedProvide,
       };
+    }
 
     case "find_provides":
       return {
@@ -1458,31 +1576,243 @@ function parseProtocolToolInput(input: ProtocolToolInput): ProtocolToolRequest {
         query: input.query,
       };
 
-    case "invoke":
+    case "invoke": {
       if (!input.request?.provide?.trim()) {
         throw new Error("protocol tool action invoke requires request.provide");
       }
+      const normalizedProvide = normalizeRequestedProvideName(
+        input.request.provide,
+        input.request.target?.nodeId,
+      );
       return {
         action: "invoke",
         request: {
-          provide: input.request.provide,
+          provide: normalizedProvide.provide,
           input: input.request.input,
-          target: input.request.target,
+          target: {
+            ...input.request.target,
+            nodeId: normalizedProvide.nodeId ?? input.request.target?.nodeId,
+          },
           routing: input.request.routing,
           modelHint: input.request.modelHint,
           budget: input.request.budget,
           handoff: input.request.handoff,
         },
       };
+    }
   }
+}
+
+function normalizeRequestedProvideName(
+  provide: string,
+  explicitNodeId?: string,
+): { nodeId?: string; provide: string } {
+  const trimmed = provide.trim();
+  const firstDot = trimmed.indexOf(".");
+  if (firstDot <= 0) {
+    return { nodeId: explicitNodeId, provide: trimmed };
+  }
+
+  const nodeId = trimmed.slice(0, firstDot);
+  const localProvide = trimmed.slice(firstDot + 1);
+  if (!localProvide) {
+    return { nodeId: explicitNodeId, provide: trimmed };
+  }
+
+  if (explicitNodeId && explicitNodeId !== nodeId) {
+    return { nodeId: explicitNodeId, provide: trimmed };
+  }
+
+  return {
+    nodeId,
+    provide: localProvide,
+  };
+}
+
+function normalizeRequestedHandoff(handoff?: ProtocolHandoffDirective): ProtocolRequestedHandoff {
+  return {
+    brief: handoff?.brief?.trim() || undefined,
+    opaque: handoff?.opaque ?? true,
+  };
+}
+
+function createProtocolNodeLocalHandoffSurface(
+  state: ProtocolNodeLocalHandoffState,
+): ProtocolNodeLocalHandoffSurface {
+  return {
+    requested: state.requested,
+
+    async run<TOutput>(
+      executor: (ctx: ProtocolNodeLocalHandoffContext) => Promise<TOutput>,
+      options: ProtocolHandoffDirective = {},
+    ): Promise<TOutput> {
+      const effective = normalizeRequestedHandoff({
+        brief: options.brief ?? state.requested.brief,
+        opaque: options.opaque ?? state.requested.opaque,
+      });
+      const handoffId = crypto.randomUUID();
+      const startedAt = Date.now();
+
+      const handoffLabel = `handoff: ${state.calleeNodeId}.${state.provide}`;
+      state.appendEntry("protocol", {
+        kind: "handoff_indicator",
+        traceId: state.traceId,
+        spanId: state.spanId,
+        handoffId,
+        nodeId: state.calleeNodeId,
+        provide: state.provide,
+        label: handoffLabel,
+        status: "running",
+        collapsed: true,
+        opaque: effective.opaque,
+        brief: effective.brief,
+        startedAt,
+      });
+      state.appendEntry("protocol", {
+        kind: "handoff_detail",
+        traceId: state.traceId,
+        spanId: state.spanId,
+        handoffId,
+        nodeId: state.calleeNodeId,
+        provide: state.provide,
+        eventKind: "handoff_started",
+        recordedAt: startedAt,
+        data: {
+          label: handoffLabel,
+          opaque: effective.opaque,
+          brief: effective.brief,
+          parentSpanId: state.parentSpanId,
+          upstreamCallerNodeId: state.upstreamCallerNodeId,
+        },
+      });
+
+      const handoffCtx: ProtocolNodeLocalHandoffContext = {
+        traceId: state.traceId,
+        spanId: state.spanId,
+        parentSpanId: state.parentSpanId,
+        callerNodeId: state.upstreamCallerNodeId,
+        calleeNodeId: state.calleeNodeId,
+        provide: state.provide,
+        depth: state.depth,
+        maxDepth: state.maxDepth,
+        budget: state.budget,
+        modelHint: state.modelHint,
+        fabric: state.fabric,
+        delegate: state.delegate,
+        pi: state.pi,
+        requestedHandoff: effective,
+        record(kind: string, data: unknown) {
+          const recordedAt = Date.now();
+          state.appendEntry("protocol", {
+            kind: "handoff_event",
+            traceId: state.traceId,
+            spanId: state.spanId,
+            handoffId,
+            nodeId: state.calleeNodeId,
+            provide: state.provide,
+            eventKind: kind,
+            recordedAt,
+            data: effective.opaque ? { redacted: true } : data,
+          });
+          state.appendEntry("protocol", {
+            kind: "handoff_detail",
+            traceId: state.traceId,
+            spanId: state.spanId,
+            handoffId,
+            nodeId: state.calleeNodeId,
+            provide: state.provide,
+            eventKind: kind,
+            recordedAt,
+            data: effective.opaque ? { redacted: true } : data,
+          });
+        },
+      };
+
+      try {
+        const output = await executor(handoffCtx);
+        const endedAt = Date.now();
+        state.appendEntry("protocol", {
+          kind: "handoff_indicator",
+          traceId: state.traceId,
+          spanId: state.spanId,
+          handoffId,
+          nodeId: state.calleeNodeId,
+          provide: state.provide,
+          label: handoffLabel,
+          status: "done",
+          collapsed: true,
+          opaque: effective.opaque,
+          brief: effective.brief,
+          startedAt,
+          endedAt,
+        });
+        state.appendEntry("protocol", {
+          kind: "handoff_detail",
+          traceId: state.traceId,
+          spanId: state.spanId,
+          handoffId,
+          parentSpanId: state.spanId,
+          upstreamCallerNodeId: state.upstreamCallerNodeId,
+          nodeId: state.calleeNodeId,
+          provide: state.provide,
+          eventKind: "handoff_succeeded",
+          recordedAt: endedAt,
+          data: { durationMs: endedAt - startedAt, opaque: effective.opaque },
+        });
+        return output;
+      } catch (error: unknown) {
+        const protocolError = error as { code?: unknown; message?: string };
+        const endedAt = Date.now();
+        state.appendEntry("protocol", {
+          kind: "handoff_indicator",
+          traceId: state.traceId,
+          spanId: state.spanId,
+          handoffId,
+          nodeId: state.calleeNodeId,
+          provide: state.provide,
+          label: handoffLabel,
+          status: "failed",
+          collapsed: true,
+          opaque: effective.opaque,
+          brief: effective.brief,
+          startedAt,
+          endedAt,
+          error: {
+            code: toProtocolErrorCode(protocolError?.code),
+            message: protocolError?.message ?? String(error),
+          },
+        });
+        state.appendEntry("protocol", {
+          kind: "handoff_detail",
+          traceId: state.traceId,
+          spanId: state.spanId,
+          handoffId,
+          parentSpanId: state.spanId,
+          upstreamCallerNodeId: state.upstreamCallerNodeId,
+          nodeId: state.calleeNodeId,
+          provide: state.provide,
+          eventKind: "handoff_failed",
+          recordedAt: endedAt,
+          data: {
+            durationMs: endedAt - startedAt,
+            opaque: effective.opaque,
+            error: {
+              code: toProtocolErrorCode(protocolError?.code),
+              message: protocolError?.message ?? String(error),
+            },
+          },
+        });
+        throw error;
+      }
+    },
+  };
 }
 
 function normalizeBudget(
   budget: ProtocolBudget | undefined,
   now: number,
   defaultTimeoutMs: number,
-): ProtocolBudget | undefined {
-  if (!budget) {
+): ProtocolBudget | undefined {  if (!budget) {
     return {
       deadlineMs: now + defaultTimeoutMs,
     };

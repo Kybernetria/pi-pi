@@ -1,8 +1,11 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type {
   JSONSchemaLite,
+  ProtocolCallContext,
   ProtocolHandler,
   PiProtocolManifest,
 } from "../vendor/pi-protocol-sdk.ts";
@@ -13,6 +16,9 @@ export const PI_CODING_AGENT_VERSION = "^0.65.2";
 export const NODE_TYPES_VERSION = "^24.5.2";
 export const TYPESCRIPT_VERSION = "^5.9.3";
 export const VALIDATION_MODE = "ast-assisted-source";
+
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const INTERNAL_INSTRUCTIONS_DIR = path.join(PACKAGE_ROOT, "protocol", "instructions");
 
 export interface TemplateDescribeInput {
   includeCommandExamples?: boolean;
@@ -39,6 +45,39 @@ export interface DescribeCertifiedTemplateOutput {
   checklist: string[];
   commandExamples: string[];
   notes: string[];
+}
+
+export interface BuildCertifiedExtensionInput {
+  description?: string;
+  brief?: string;
+  repoDir: string;
+  replaceExisting?: boolean;
+  applyChanges?: boolean;
+  allowPair?: boolean;
+}
+
+export interface BuiltCertifiedPackageSummary {
+  packageName: string;
+  nodeId: string;
+  packageDir: string;
+  changedFiles: string[];
+  provides: string[];
+}
+
+export interface BuildCertifiedExtensionOutput {
+  status: "certified";
+  repoDir: string;
+  buildMode: "greenfield-single-node" | "greenfield-pair" | "brownfield-single-node";
+  applied: boolean;
+  packages: BuiltCertifiedPackageSummary[];
+  changedFiles: string[];
+  validation: {
+    pass: true;
+    validationMode: typeof VALIDATION_MODE;
+    packageCount: number;
+  };
+  assumptions: string[];
+  summary: string;
 }
 
 export interface PlanCertifiedNodeFromDescriptionInput {
@@ -304,15 +343,13 @@ export async function describeCertifiedTemplate(
       "register with the shared fabric on session_start",
       "unregister from the shared fabric on session_shutdown",
       "prefer ctx.delegate.invoke() for recursive cross-node delegation",
+      "use node-local handoff with opaque result boundaries by default when embedded subagent orchestration is needed",
       "ship pi.protocol.json as the canonical protocol contract",
     ],
     toolingProvides: [
       "describe_certified_template",
-      "plan_certified_node_from_description",
-      "plan_brownfield_migration",
-      "scaffold_certified_node",
-      "scaffold_collaborating_nodes",
-      "validate_certified_node",
+      "build_certified_extension",
+      "validate_certified_extension",
     ],
     generatedPackageDefaults: {
       sdkDependency: `@kyvernitria/pi-protocol-sdk@${SDK_DEPENDENCY}`,
@@ -325,24 +362,18 @@ export async function describeCertifiedTemplate(
     commandExamples: input.includeCommandExamples
       ? [
           "/pi-pi-template",
-          '/pi-pi-plan Build me a certified extension that summarizes markdown notes and also offers a local command.',
-          '/pi-pi-migrate {"repoDir":"./some-existing-repo","includeFileHints":true}',
-          '/pi-pi-new {"packageName":"pi-hello","nodeId":"pi-hello","purpose":"Greets users","provides":[{"name":"say_hello","description":"Return a greeting."}]}',
-          '/pi-pi-new-pair {"managerPackageName":"pi-manager","managerNodeId":"pi-manager","workerPackageName":"pi-worker","workerNodeId":"pi-worker","managerProvideName":"delegate_task","workerProvideName":"do_task","workerMode":"deterministic"}',
-          "/pi-pi-validate ./packages/pi-hello",
+          '/pi-pi-build-certified-extension {"description":"Build me a certified extension that summarizes markdown notes and also offers a local command.","repoDir":"./packages/pi-notes","applyChanges":true}',
+          "/pi-pi-validate-certified-extension ./packages/pi-notes",
         ]
       : [],
     notes: [
-      "scaffold_certified_node is a pure generation provide that returns a file plan and file contents.",
-      "plan_certified_node_from_description is a pure planning provide that turns a natural-language brief into scaffold-ready structured output.",
-      "plan_brownfield_migration is a pure planning provide for existing repositories that returns a source-based migration plan.",
-      "scaffold_collaborating_nodes is a pure generation provide that returns two package plans and their file contents.",
+      "build_certified_extension is the authoritative public builder surface and returns only a compact validated result.",
+      "Low-level planning, migration, pair, scaffold, and alias stages stay internal to pi-pi.",
       "Certified package bootstrap should ensure both the shared fabric and the standard protocol projection.",
       "ctx.delegate is the preferred bound delegation surface for recursive cross-node calls because trace, caller, and budget context stay attached automatically.",
-      "Agent-backed worker mode is currently an agent-backed-ready scaffold pattern, not a fully realized embedded Pi agent runtime.",
-      "/pi-pi-new and /pi-pi-new-pair are Pi command projections that may optionally write generated files to disk.",
+      "Node-local handoff is available natively in the runtime and keeps cross-node result boundaries opaque by default.",
       "Commands and tools are projections over the protocol, not the protocol itself.",
-      `validate_certified_node currently uses ${VALIDATION_MODE} checks rather than full semantic validation.`,
+      `validate_certified_extension currently uses ${VALIDATION_MODE} checks rather than full semantic validation.`,
     ],
   };
 }
@@ -354,8 +385,9 @@ export async function planCertifiedNodeFromDescription(
 
   const brief = normalizeWhitespace(input.description);
   const instruction = await resolveInternalInstruction(
-    "plan-certified-node-from-description",
-    ["interpret-extension-brief.md"],
+    "plan-extension-from-brief",
+    ["plan-certified-node-from-description.md", "interpret-extension-brief.md"],
+    { allowDefaultFallback: false },
   );
   const policy = derivePlanningPolicy(instruction.content);
   const lowerBrief = brief.toLowerCase();
@@ -525,8 +557,9 @@ export async function planBrownfieldMigration(
 
   const repoDir = path.resolve(input.repoDir);
   const instruction = await resolveInternalInstruction(
-    "plan-brownfield-migration",
-    ["adapt-brownfield-to-pi-protocol.md"],
+    "plan-existing-repo-migration",
+    ["plan-brownfield-migration.md", "adapt-brownfield-to-pi-protocol.md"],
+    { allowDefaultFallback: false },
   );
   const fileHints: Record<string, string[]> = {};
   const sourceFiles = await collectBrownfieldFiles(repoDir);
@@ -764,7 +797,7 @@ export async function scaffoldCertifiedNode(
     followUpValidationChecklist: CERTIFICATION_CHECKLIST,
     notes: [
       "This provide returns generated files without writing them to disk.",
-      "Use a Pi command projection such as /pi-pi-new if you want operator-driven file writing.",
+      "Use a Pi command projection such as /pi-pi-scaffold-extension if you want operator-driven file writing.",
       "Generated bootstrap ensures the shared fabric and the standard protocol projection by default.",
       `The generated package stamps ${sdkDependency.display}. Override sdkDependency for local development if needed.`,
     ],
@@ -1005,7 +1038,7 @@ export async function validateCertifiedNode(
   input: ValidateCertifiedNodeInput,
 ): Promise<ValidateCertifiedNodeOutput> {
   if (!input || typeof input !== "object" || !input.packageDir?.trim()) {
-    throw protocolError("INVALID_INPUT", "validate_certified_node requires a non-empty packageDir");
+    throw protocolError("INVALID_INPUT", "validate_extension requires a non-empty packageDir");
   }
 
   const packageDir = path.resolve(input.packageDir);
@@ -1347,27 +1380,461 @@ export async function validateCertifiedNode(
   };
 }
 
+type InternalBuilderProvide =
+  | "plan_extension_from_brief"
+  | "plan_existing_repo_migration"
+  | "scaffold_extension"
+  | "scaffold_extension_pair"
+  | "validate_extension";
+
+interface InternalBuilderRuntime {
+  invokeInternal<TOutput>(provide: InternalBuilderProvide, input: unknown): Promise<TOutput>;
+}
+
+interface BuildArtifact {
+  packageName: string;
+  nodeId: string;
+  relativeDir: string;
+  files: Record<string, string>;
+  provides: string[];
+  changedFiles: string[];
+}
+
+async function buildCertifiedExtensionWithRuntime(
+  input: BuildCertifiedExtensionInput,
+  runtime: InternalBuilderRuntime,
+): Promise<BuildCertifiedExtensionOutput> {
+  validateBuildCertifiedExtensionInput(input);
+
+  const description = normalizeBuildCertifiedExtensionDescription(input);
+  const repoDir = path.resolve(input.repoDir);
+  const applyChanges = input.applyChanges ?? true;
+  const allowPair = input.allowPair ?? false;
+  const repoState = await classifyCertifiedBuildRepo(repoDir);
+  const assumptions: string[] = [];
+
+  if (repoState.kind === "brownfield" && input.replaceExisting !== true) {
+    throw protocolError(
+      "INVALID_INPUT",
+      "build_certified_extension found existing repository content. Re-run with replaceExisting:true so pi-pi can replace it with a certified build instead of improvising a partial non-certified migration.",
+    );
+  }
+
+  let buildMode: BuildCertifiedExtensionOutput["buildMode"];
+  let artifacts: BuildArtifact[] = [];
+
+  const plan = await runtime.invokeInternal<PlanCertifiedNodeFromDescriptionOutput>(
+    "plan_extension_from_brief",
+    {
+      description,
+      preferCollaboration: allowPair,
+    },
+  );
+
+  assumptions.push(...plan.assumptions, ...plan.clarificationNotes);
+
+  if (repoState.kind === "greenfield") {
+    if (plan.recommendedShape === "collaborating-pair") {
+      if (!allowPair) {
+        throw protocolError(
+          "INVALID_INPUT",
+          "build_certified_extension determined that this brief requires a collaborating pair. Re-run with allowPair:true or simplify the brief to a single certified extension.",
+        );
+      }
+
+      if (!plan.collaboratingNodesScaffoldInput) {
+        throw protocolError("EXECUTION_FAILED", "planner did not return collaboratingNodesScaffoldInput");
+      }
+
+      const pair = await runtime.invokeInternal<ScaffoldCollaboratingNodesOutput>(
+        "scaffold_extension_pair",
+        plan.collaboratingNodesScaffoldInput,
+      );
+      artifacts = toPairBuildArtifacts(pair);
+      buildMode = "greenfield-pair";
+    } else {
+      const scaffoldInput =
+        plan.singleNodeScaffoldInput ?? {
+          packageName: plan.suggestedPackageName,
+          nodeId: plan.suggestedNodeId,
+          purpose: plan.suggestedPurpose,
+          provides: plan.candidateProvides,
+          strictTypes: true,
+        };
+      const scaffold = await runtime.invokeInternal<ScaffoldCertifiedNodeOutput>(
+        "scaffold_extension",
+        scaffoldInput,
+      );
+      artifacts = [toSingleNodeBuildArtifact(scaffold)];
+      buildMode = "greenfield-single-node";
+    }
+  } else {
+    const migrationPlan = await runtime.invokeInternal<PlanBrownfieldMigrationOutput>(
+      "plan_existing_repo_migration",
+      {
+        repoDir,
+        includeFileHints: false,
+        preferCollaboration: false,
+      },
+    );
+
+    assumptions.push(
+      ...migrationPlan.heuristicNotes.slice(0, 2),
+      ...migrationPlan.manualFollowUps.slice(0, 1),
+      "Brownfield replacement keeps the user brief as the authoritative target contract; repo inspection is advisory only.",
+    );
+
+    if (plan.recommendedShape === "collaborating-pair" || migrationPlan.recommendedShape === "collaborating-pair") {
+      throw protocolError(
+        "INVALID_INPUT",
+        "build_certified_extension currently exposes brownfield replacement only as a single certified package. Use a fresh repo for pair mode or split the migration into separate certified packages.",
+      );
+    }
+
+    const scaffold = await runtime.invokeInternal<ScaffoldCertifiedNodeOutput>("scaffold_extension", {
+      packageName: ensureCertifiedPackageName(migrationPlan.repoSummary.packageName ?? path.basename(repoDir)),
+      nodeId: ensureCertifiedNodeId(migrationPlan.repoSummary.packageName ?? path.basename(repoDir)),
+      purpose: plan.suggestedPurpose,
+      provides: plan.candidateProvides,
+      generateDebugCommands: plan.operatorCommandProjectionSuggested,
+      strictTypes: true,
+    } satisfies ScaffoldCertifiedNodeInput);
+
+    artifacts = [toSingleNodeBuildArtifact(scaffold)];
+    buildMode = "brownfield-single-node";
+  }
+
+  const changedFiles = dedupe(artifacts.flatMap((artifact) => artifact.changedFiles)).sort();
+  const packages = await stageAndValidateBuildArtifacts(repoDir, artifacts, runtime);
+
+  if (applyChanges) {
+    if (repoState.kind === "brownfield" && input.replaceExisting === true) {
+      await clearDirectoryPreservingGit(repoDir);
+    }
+
+    for (const artifact of artifacts) {
+      const packageDir = artifact.relativeDir === "." ? repoDir : path.join(repoDir, artifact.relativeDir);
+      await writeGeneratedFiles(packageDir, artifact.files);
+    }
+
+    for (const builtPackage of packages) {
+      const finalValidation = await runtime.invokeInternal<ValidateCertifiedNodeOutput>(
+        "validate_extension",
+        { packageDir: builtPackage.packageDir },
+      );
+      if (!finalValidation.pass) {
+        throw protocolError(
+          "EXECUTION_FAILED",
+          `Applied files for ${builtPackage.packageName}, but final validation still failed: ${finalValidation.violatedRules[0]?.message ?? "unknown validation error"}`,
+        );
+      }
+    }
+  }
+
+  return {
+    status: "certified",
+    repoDir,
+    buildMode,
+    applied: applyChanges,
+    packages,
+    changedFiles,
+    validation: {
+      pass: true,
+      validationMode: VALIDATION_MODE,
+      packageCount: packages.length,
+    },
+    assumptions: dedupe(assumptions).slice(0, 8),
+    summary: applyChanges
+      ? `Built ${packages.length} protocol-certified package${packages.length === 1 ? "" : "s"} and validated ${changedFiles.length} file change${changedFiles.length === 1 ? "" : "s"}.`
+      : `Dry-run complete: validated ${packages.length} protocol-certified package${packages.length === 1 ? "" : "s"} in staging without writing local files.`,
+  };
+}
+
+function createDirectInternalBuilderRuntime(): InternalBuilderRuntime {
+  return {
+    async invokeInternal<TOutput>(provide: InternalBuilderProvide, input: unknown): Promise<TOutput> {
+      switch (provide) {
+        case "plan_extension_from_brief":
+          return (await planCertifiedNodeFromDescription(
+            input as PlanCertifiedNodeFromDescriptionInput,
+          )) as TOutput;
+        case "plan_existing_repo_migration":
+          return (await planBrownfieldMigration(input as PlanBrownfieldMigrationInput)) as TOutput;
+        case "scaffold_extension":
+          return (await scaffoldCertifiedNode(input as ScaffoldCertifiedNodeInput)) as TOutput;
+        case "scaffold_extension_pair":
+          return (await scaffoldCollaboratingNodes(input as ScaffoldCollaboratingNodesInput)) as TOutput;
+        case "validate_extension":
+          return (await validateCertifiedNode(input as ValidateCertifiedNodeInput)) as TOutput;
+      }
+    },
+  };
+}
+
+function createDelegateBackedInternalBuilderRuntime(
+  ctx: Pick<ProtocolCallContext, "delegate" | "calleeNodeId">,
+): InternalBuilderRuntime {
+  return {
+    async invokeInternal<TOutput>(provide: InternalBuilderProvide, input: unknown): Promise<TOutput> {
+      const result = await ctx.delegate.invoke<unknown, TOutput>({
+        provide,
+        target: { nodeId: ctx.calleeNodeId },
+        routing: "deterministic",
+        input,
+      });
+
+      if (!result.ok) {
+        throw protocolError(
+          result.error.code,
+          `internal builder stage ${provide} failed: ${result.error.message}`,
+        );
+      }
+
+      return result.output as TOutput;
+    },
+  };
+}
+
+function normalizeBuildCertifiedExtensionDescription(input: BuildCertifiedExtensionInput): string {
+  const value = input.description?.trim() || input.brief?.trim();
+  return normalizeWhitespace(value ?? "");
+}
+
+function validateBuildCertifiedExtensionInput(input: BuildCertifiedExtensionInput): void {
+  if (!input || typeof input !== "object") {
+    throw protocolError("INVALID_INPUT", "build_certified_extension requires an input object");
+  }
+
+  if (!normalizeBuildCertifiedExtensionDescription(input)) {
+    throw protocolError("INVALID_INPUT", "description or brief is required");
+  }
+
+  if (!input.repoDir?.trim()) {
+    throw protocolError("INVALID_INPUT", "repoDir is required");
+  }
+
+  if (input.replaceExisting !== undefined && typeof input.replaceExisting !== "boolean") {
+    throw protocolError("INVALID_INPUT", "replaceExisting must be boolean when provided");
+  }
+
+  if (input.applyChanges !== undefined && typeof input.applyChanges !== "boolean") {
+    throw protocolError("INVALID_INPUT", "applyChanges must be boolean when provided");
+  }
+
+  if (input.allowPair !== undefined && typeof input.allowPair !== "boolean") {
+    throw protocolError("INVALID_INPUT", "allowPair must be boolean when provided");
+  }
+}
+
+async function classifyCertifiedBuildRepo(
+  repoDir: string,
+): Promise<{ kind: "greenfield" | "brownfield"; entries: string[] }> {
+  if (!(await exists(repoDir))) {
+    return { kind: "greenfield", entries: [] };
+  }
+
+  const harmlessRootEntries = new Set([
+    ".gitignore",
+    ".npmignore",
+    "LICENSE",
+    "LICENSE.md",
+    "LICENSE.txt",
+    "README",
+    "README.md",
+    "CHANGELOG.md",
+  ]);
+
+  const entries = await fs.readdir(repoDir, { withFileTypes: true }).catch(() => []);
+  const visibleEntries = entries.filter((entry) => entry.name !== ".git");
+  const brownfieldSignals = visibleEntries.filter((entry) => {
+    if (entry.isDirectory()) {
+      return ![".github"].includes(entry.name);
+    }
+
+    return !harmlessRootEntries.has(entry.name);
+  });
+
+  return {
+    kind: brownfieldSignals.length > 0 ? "brownfield" : "greenfield",
+    entries: visibleEntries.map((entry) => entry.name),
+  };
+}
+
+function sanitizeCertifiedName(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/^@[^/]+\//, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  const safe = normalized || "certified-extension";
+  return /^[a-z]/.test(safe) ? safe : `pi-${safe}`;
+}
+
+function ensureCertifiedPackageName(value: string): string {
+  const safe = sanitizeCertifiedName(value);
+  return safe.startsWith("pi-") ? safe : `pi-${safe}`;
+}
+
+function ensureCertifiedNodeId(value: string): string {
+  return ensureCertifiedPackageName(value);
+}
+
+function toSingleNodeBuildArtifact(scaffold: ScaffoldCertifiedNodeOutput): BuildArtifact {
+  return {
+    packageName: scaffold.packageName,
+    nodeId: scaffold.nodeId,
+    relativeDir: ".",
+    files: scaffold.files,
+    provides: scaffold.generatedProvides.map((provide) => provide.name),
+    changedFiles: Object.keys(scaffold.files).sort(),
+  };
+}
+
+function toPairBuildArtifacts(scaffold: ScaffoldCollaboratingNodesOutput): BuildArtifact[] {
+  return [
+    {
+      packageName: scaffold.manager.packageName,
+      nodeId: scaffold.manager.nodeId,
+      relativeDir: scaffold.manager.packageName,
+      files: scaffold.manager.files,
+      provides: scaffold.manager.generatedProvides.map((provide) => provide.name),
+      changedFiles: Object.keys(scaffold.manager.files)
+        .sort()
+        .map((filePath) => path.posix.join(scaffold.manager.packageName, filePath)),
+    },
+    {
+      packageName: scaffold.worker.packageName,
+      nodeId: scaffold.worker.nodeId,
+      relativeDir: scaffold.worker.packageName,
+      files: scaffold.worker.files,
+      provides: scaffold.worker.generatedProvides.map((provide) => provide.name),
+      changedFiles: Object.keys(scaffold.worker.files)
+        .sort()
+        .map((filePath) => path.posix.join(scaffold.worker.packageName, filePath)),
+    },
+  ];
+}
+
+async function writeGeneratedFiles(rootDir: string, files: Record<string, string>): Promise<void> {
+  for (const [relativePath, content] of Object.entries(files)) {
+    const fullPath = path.join(rootDir, relativePath);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, content, "utf8");
+  }
+}
+
+async function stageAndValidateBuildArtifacts(
+  repoDir: string,
+  artifacts: BuildArtifact[],
+  runtime: InternalBuilderRuntime,
+): Promise<BuiltCertifiedPackageSummary[]> {
+  const stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-certified-build-"));
+
+  try {
+    const results: BuiltCertifiedPackageSummary[] = [];
+
+    for (const artifact of artifacts) {
+      const stagedPackageDir = artifact.relativeDir === "." ? stagingRoot : path.join(stagingRoot, artifact.relativeDir);
+      await writeGeneratedFiles(stagedPackageDir, artifact.files);
+
+      const validation = await runtime.invokeInternal<ValidateCertifiedNodeOutput>("validate_extension", {
+        packageDir: stagedPackageDir,
+      });
+
+      if (!validation.pass) {
+        throw protocolError(
+          "EXECUTION_FAILED",
+          `pi-pi generated ${artifact.packageName}, but certification failed: ${validation.violatedRules[0]?.message ?? "unknown validation error"}`,
+        );
+      }
+
+      results.push({
+        packageName: artifact.packageName,
+        nodeId: artifact.nodeId,
+        packageDir: artifact.relativeDir === "." ? repoDir : path.join(repoDir, artifact.relativeDir),
+        changedFiles: artifact.changedFiles,
+        provides: artifact.provides,
+      });
+    }
+
+    return results;
+  } finally {
+    await fs.rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function clearDirectoryPreservingGit(rootDir: string): Promise<void> {
+  await fs.mkdir(rootDir, { recursive: true });
+  const entries = await fs.readdir(rootDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (entry.name === ".git") continue;
+    await fs.rm(path.join(rootDir, entry.name), { recursive: true, force: true });
+  }
+}
+
+export async function buildCertifiedExtension(
+  input: BuildCertifiedExtensionInput,
+): Promise<BuildCertifiedExtensionOutput> {
+  return buildCertifiedExtensionWithRuntime(input, createDirectInternalBuilderRuntime());
+}
+
+export async function validateCertifiedExtension(
+  input: ValidateCertifiedNodeInput,
+): Promise<ValidateCertifiedNodeOutput> {
+  return validateCertifiedNode(input);
+}
+
 export const describe_certified_template: ProtocolHandler = async (_ctx, input) =>
   describeCertifiedTemplate((input ?? {}) as TemplateDescribeInput);
 
-export const plan_certified_node_from_description: ProtocolHandler = async (_ctx, input) =>
+export const build_certified_extension: ProtocolHandler = async (ctx, input) =>
+  ctx.handoff.run(
+    async (handoffCtx) =>
+      buildCertifiedExtensionWithRuntime(
+        input as BuildCertifiedExtensionInput,
+        createDelegateBackedInternalBuilderRuntime(handoffCtx),
+      ),
+    {
+      brief: "pi-pi authoritative certified builder orchestration",
+      opaque: true,
+    },
+  );
+
+export const validate_certified_extension: ProtocolHandler = async (_ctx, input) =>
+  validateCertifiedExtension(input as ValidateCertifiedNodeInput);
+
+export const plan_extension_from_brief: ProtocolHandler = async (_ctx, input) =>
   planCertifiedNodeFromDescription(input as PlanCertifiedNodeFromDescriptionInput);
 
-export const plan_brownfield_migration: ProtocolHandler = async (_ctx, input) =>
+export const plan_existing_repo_migration: ProtocolHandler = async (_ctx, input) =>
   planBrownfieldMigration(input as PlanBrownfieldMigrationInput);
 
-export const scaffold_certified_node: ProtocolHandler = async (_ctx, input) =>
+export const scaffold_extension: ProtocolHandler = async (_ctx, input) =>
   scaffoldCertifiedNode(input as ScaffoldCertifiedNodeInput);
 
-export const scaffold_collaborating_nodes: ProtocolHandler = async (_ctx, input) =>
+export const scaffold_extension_pair: ProtocolHandler = async (_ctx, input) =>
   scaffoldCollaboratingNodes(input as ScaffoldCollaboratingNodesInput);
 
-export const validate_certified_node: ProtocolHandler = async (_ctx, input) =>
+export const validate_extension: ProtocolHandler = async (_ctx, input) =>
   validateCertifiedNode(input as ValidateCertifiedNodeInput);
+
+export const plan_certified_node_from_description: ProtocolHandler = plan_extension_from_brief;
+export const plan_brownfield_migration: ProtocolHandler = plan_existing_repo_migration;
+export const scaffold_certified_node: ProtocolHandler = scaffold_extension;
+export const scaffold_collaborating_nodes: ProtocolHandler = scaffold_extension_pair;
+export const validate_certified_node: ProtocolHandler = validate_extension;
+
+export const planExtensionFromBrief = planCertifiedNodeFromDescription;
+export const planExistingRepoMigration = planBrownfieldMigration;
+export const scaffoldExtension = scaffoldCertifiedNode;
+export const scaffoldExtensionPair = scaffoldCollaboratingNodes;
+export const validateExtension = validateCertifiedExtension;
 
 function validatePlanningInput(input: PlanCertifiedNodeFromDescriptionInput): void {
   if (!input || typeof input !== "object") {
-    throw protocolError("INVALID_INPUT", "plan_certified_node_from_description requires an input object");
+    throw protocolError("INVALID_INPUT", "plan_extension_from_brief requires an input object");
   }
 
   if (!input.description?.trim()) {
@@ -1385,7 +1852,7 @@ function validatePlanningInput(input: PlanCertifiedNodeFromDescriptionInput): vo
 
 function validateBrownfieldPlanningInput(input: PlanBrownfieldMigrationInput): void {
   if (!input || typeof input !== "object") {
-    throw protocolError("INVALID_INPUT", "plan_brownfield_migration requires an input object");
+    throw protocolError("INVALID_INPUT", "plan_existing_repo_migration requires an input object");
   }
 
   if (!input.repoDir?.trim()) {
@@ -1407,7 +1874,7 @@ function validateBrownfieldPlanningInput(input: PlanBrownfieldMigrationInput): v
 
 function validateScaffoldInput(input: ScaffoldCertifiedNodeInput): void {
   if (!input || typeof input !== "object") {
-    throw protocolError("INVALID_INPUT", "scaffold_certified_node requires an input object");
+    throw protocolError("INVALID_INPUT", "scaffold_extension requires an input object");
   }
 
   if (!input.packageName?.trim()) {
@@ -1470,7 +1937,7 @@ function validateScaffoldInput(input: ScaffoldCertifiedNodeInput): void {
 
 function validateCollaboratingNodesInput(input: ScaffoldCollaboratingNodesInput): void {
   if (!input || typeof input !== "object") {
-    throw protocolError("INVALID_INPUT", "scaffold_collaborating_nodes requires an input object");
+    throw protocolError("INVALID_INPUT", "scaffold_extension_pair requires an input object");
   }
 
   const packageFields = [
@@ -1532,6 +1999,10 @@ interface ResolvedInternalInstruction {
   fallbackUsed: boolean;
 }
 
+interface InternalInstructionResolutionOptions {
+  allowDefaultFallback?: boolean;
+}
+
 interface PlanningPolicy {
   prefersSingleNodeByDefault: boolean;
   deterministicFirstOnlyWhenExplicitlyAbsent: boolean;
@@ -1540,15 +2011,16 @@ interface PlanningPolicy {
 async function resolveInternalInstruction(
   taskBaseName: string,
   aliases: string[] = [],
+  options: InternalInstructionResolutionOptions = {},
 ): Promise<ResolvedInternalInstruction> {
-  const candidates = [`${taskBaseName}.md`, ...aliases, "default.md"];
+  const candidates = options.allowDefaultFallback === false ? [`${taskBaseName}.md`, ...aliases] : [`${taskBaseName}.md`, ...aliases, "default.md"];
 
   for (const candidate of candidates) {
-    const absolutePath = path.resolve("protocol", "instructions", candidate);
+    const absolutePath = path.join(INTERNAL_INSTRUCTIONS_DIR, candidate);
     if (await exists(absolutePath)) {
       return {
         absolutePath,
-        relativePath: path.relative(process.cwd(), absolutePath).replaceAll(path.sep, "/"),
+        relativePath: `protocol/instructions/${candidate}`,
         content: await fs.readFile(absolutePath, "utf8"),
         fallbackUsed: candidate === "default.md",
       };
@@ -1557,7 +2029,7 @@ async function resolveInternalInstruction(
 
   throw protocolError(
     "EXECUTION_FAILED",
-    `No internal instruction file found for ${taskBaseName}. Expected protocol/instructions/${taskBaseName}.md or protocol/instructions/default.md`,
+    `No internal instruction file found for ${taskBaseName}. Expected protocol/instructions/${taskBaseName}.md${aliases.length > 0 ? ` or one of: ${aliases.map((alias) => `protocol/instructions/${alias}`).join(", ")}` : ""}${options.allowDefaultFallback === false ? "" : " or protocol/instructions/default.md"}`,
   );
 }
 
@@ -2857,8 +3329,8 @@ ${input.provides.map((provide) => `- ${provide.name}: ${provide.description}`).j
 
 ## Notes
 
-- ` + "`scaffold_certified_node`" + ` is a pure generation provide. It returns a file plan and file contents.
-- Writing files to disk is an operator concern handled by command projections such as ` + "`/pi-pi-new`" + `.
+- ` + "`scaffold_extension`" + ` is a pure generation provide. It returns a file plan and file contents.
+- Writing files to disk is an operator concern handled by command projections such as ` + "`/pi-pi-scaffold-extension`" + `.
 - Generated bootstrap ensures the shared fabric and the standard protocol projection by default.
 - Pi commands, tools, and other UI surfaces remain projections over the protocol rather than the protocol itself.
 - If nested protocol calls are introduced later, prefer the bound ` + "`ctx.delegate.invoke(...)`" + ` surface.

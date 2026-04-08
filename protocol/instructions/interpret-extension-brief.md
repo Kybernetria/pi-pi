@@ -2,7 +2,7 @@
 
 This file remains as a compatibility alias for older planning references.
 
-Prefer `protocol/instructions/plan-certified-node-from-description.md` for the active planning path.
+Prefer `protocol/instructions/plan-extension-from-brief.md` for the active planning path.
 
 ## Compatibility guidance
 

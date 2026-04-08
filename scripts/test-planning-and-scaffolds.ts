@@ -3,11 +3,11 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  planCertifiedNodeFromDescription,
-  planBrownfieldMigration,
-  scaffoldCertifiedNode,
-  scaffoldCollaboratingNodes,
-  validateCertifiedNode,
+  planExtensionFromBrief,
+  planExistingRepoMigration,
+  scaffoldExtension,
+  scaffoldExtensionPair,
+  validateExtension,
   type PlanCertifiedNodeFromDescriptionOutput,
   type PlanBrownfieldMigrationOutput,
   type ScaffoldCertifiedNodeOutput,
@@ -22,7 +22,7 @@ function requireOk<T>(value: T | undefined, message: string): T {
 
 async function main(): Promise<void> {
   // A mixed search + summarize brief should stay capability-first and infer both public provides.
-  const notesWorkbenchPlan = (await planCertifiedNodeFromDescription({
+  const notesWorkbenchPlan = (await planExtensionFromBrief({
     description:
       "Build me a certified extension that searches markdown notes for TODOs, summarizes the findings, and offers a local command.",
   })) as PlanCertifiedNodeFromDescriptionOutput;
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     notesWorkbenchPlan.singleNodeScaffoldInput,
     "single-node brief should return scaffold input",
   );
-  const scaffold = (await scaffoldCertifiedNode(scaffoldInput)) as ScaffoldCertifiedNodeOutput;
+  const scaffold = (await scaffoldExtension(scaffoldInput)) as ScaffoldCertifiedNodeOutput;
   const handlersFile = scaffold.files["protocol/handlers.ts"];
   const searchInputSchema = scaffold.files["protocol/schemas/search_notes.input.json"];
   const summarizeOutputSchema = scaffold.files["protocol/schemas/summarize_notes.output.json"];
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   assert.ok(extractTasksOutputSchema.includes('"tasks"'));
 
   // A direct ping scaffold request should stay ping-shaped instead of drifting into validation semantics.
-  const pingScaffold = (await scaffoldCertifiedNode({
+  const pingScaffold = (await scaffoldExtension({
     packageName: "pi-ping-test",
     nodeId: "pi-ping-test",
     purpose: "A simple protocol-aligned test package with one ping provide.",
@@ -160,12 +160,12 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
     "utf8",
   );
 
-  const badPingValidation = (await validateCertifiedNode({ packageDir: badPingDir })) as ValidateCertifiedNodeOutput;
+  const badPingValidation = (await validateExtension({ packageDir: badPingDir })) as ValidateCertifiedNodeOutput;
   assert.equal(badPingValidation.pass, false);
   assert.ok(badPingValidation.violatedRules.some((rule) => rule.rule === "provide.semantic.ping"));
 
   // A research-flavored brief with explicit collaboration language should choose a pair.
-  const researchPairPlan = (await planCertifiedNodeFromDescription({
+  const researchPairPlan = (await planExtensionFromBrief({
     description:
       "Build a manager/worker certified pair that delegates research, gathers findings, and synthesizes them for the user.",
   })) as PlanCertifiedNodeFromDescriptionOutput;
@@ -175,7 +175,7 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.managerProvideName, "delegate_research");
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.workerProvideName, "perform_research");
 
-  const pairScaffold = (await scaffoldCollaboratingNodes(
+  const pairScaffold = (await scaffoldExtensionPair(
     requireOk(researchPairPlan.collaboratingNodesScaffoldInput, "pair brief should return collaborating scaffold input"),
   )) as ScaffoldCollaboratingNodesOutput;
   assert.ok(Object.keys(pairScaffold.worker.files).some((filePath) => filePath.startsWith("protocol/prompts/")));
@@ -207,7 +207,7 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
   await fs.writeFile(path.join(brownfieldDir, "protocol", "handlers.ts"), "export const summarize_notes = () => {};\n", "utf8");
   await fs.writeFile(path.join(brownfieldDir, "scripts", "migrate.ts"), "console.log('migrate');\n", "utf8");
 
-  const brownfieldPlan = (await planBrownfieldMigration({
+  const brownfieldPlan = (await planExistingRepoMigration({
     repoDir: brownfieldDir,
     includeFileHints: true,
   })) as import("../protocol/core.ts").PlanBrownfieldMigrationOutput;

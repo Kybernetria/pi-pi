@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- added a compact, host-visible handoff indicator plus separate structured handoff detail records so disclosure UIs can collapse by default and expand on demand without changing the compact protocol result boundary
+- exported explicit handoff indicator/detail shapes in the runtime SDK so host code can reuse the same contract for disclosure rendering
 - added a brownfield migration-planning provide and command that inspects an existing repo's commands, scripts, handlers, bootstrap wiring, and docs, then returns a structured Pi Protocol migration plan
 - added a reusable protocol routing policy so simple requests stay direct while code-changing requests check protocol first and fall back cleanly when no installed capability fits
 - added an internal prompt-awareness helper that is installed through the standard `protocol` projection path so top-level chat can prefer protocol discovery before scaffolding new code

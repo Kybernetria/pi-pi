@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     "before_agent_start should inject the protocol-awareness helper into real AgentSession turns",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses code"),
+    effectiveSystemPrompt.includes("For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses extension code"),
     "top-level chat path should be nudged toward protocol discovery for code-changing requests",
   );
   assert.ok(
@@ -76,8 +76,12 @@ async function main(): Promise<void> {
     "prompt-awareness helper should explain the node-first tiered discovery path",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("If no installed capability fits, proceed directly"),
-    "prompt-awareness helper should still allow direct fallback when discovery finds nothing",
+    effectiveSystemPrompt.includes("If discovery finds a matching public builder provide"),
+    "prompt-awareness helper should require strict builder reuse when a certified builder is available",
+  );
+  assert.ok(
+    effectiveSystemPrompt.includes("If no installed capability fits for an extension-building request"),
+    "prompt-awareness helper should require explicit failure when extension-building work cannot stay on the protocol path",
   );
 
   console.log("real AgentSession protocol discoverability passed");

@@ -1,6 +1,6 @@
 # Describe extensions naturally with pi-pi
 
-`pi-pi` now includes an internal planning layer for natural-language extension briefs.
+`pi-pi` now exposes a small authoritative public builder surface and keeps natural-language planning internal.
 
 You do not need rigid prompt syntax.
 
@@ -25,5 +25,17 @@ When useful, mention:
 ## Important note
 
 The public contract is still typed protocol provides.
+
+Current public builder surface:
+
+- `build_certified_extension`
+- `validate_certified_extension`
+- `describe_certified_template`
+
+Reuse-or-stop rule:
+
+- if a matching certified builder provide is available, invoke it
+- if it fails, surface that failure compactly
+- do not switch to an improvised non-certified fallback after discovery
 
 Commands, tools, and internal instruction files are projections or internals, not the protocol itself.

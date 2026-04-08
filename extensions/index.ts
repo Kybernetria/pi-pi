@@ -3,6 +3,7 @@ import {
   ensureProtocolAgentProjection,
   ensureProtocolFabric,
   registerProtocolNode,
+  type PiProtocolManifest,
   type ProtocolAgentProjectionTarget,
   type ProtocolFabric,
   type ProtocolInvokeResult,
@@ -10,15 +11,9 @@ import {
 } from "../vendor/pi-protocol-sdk.ts";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import type {
+  BuildCertifiedExtensionInput,
+  BuildCertifiedExtensionOutput,
   DescribeCertifiedTemplateOutput,
-  PlanCertifiedNodeFromDescriptionInput,
-  PlanCertifiedNodeFromDescriptionOutput,
-  PlanBrownfieldMigrationInput,
-  PlanBrownfieldMigrationOutput,
-  ScaffoldCertifiedNodeInput,
-  ScaffoldCertifiedNodeOutput,
-  ScaffoldCollaboratingNodesInput,
-  ScaffoldCollaboratingNodesOutput,
   ValidateCertifiedNodeInput,
   ValidateCertifiedNodeOutput,
 } from "../protocol/core.ts";
@@ -40,22 +35,8 @@ type PiRuntime = ExtensionAPI &
     registerCommand?: (name: string, command: RegisteredCommand) => void;
   };
 
-interface PiPiPlanCommandEnvelope {
-  input?: PlanCertifiedNodeFromDescriptionInput;
-}
-
-interface PiPiMigrateCommandEnvelope {
-  input?: { repoDir?: string; includeFileHints?: boolean; preferCollaboration?: boolean; includeInstructionDebug?: boolean };
-}
-
-interface PiPiNewCommandEnvelope {
-  destinationDir?: string;
-  input?: ScaffoldCertifiedNodeInput;
-}
-
-interface PiPiNewPairCommandEnvelope {
-  destinationDir?: string;
-  input?: ScaffoldCollaboratingNodesInput;
+interface BuildCommandEnvelope {
+  input?: BuildCertifiedExtensionInput;
 }
 
 function parseJsonArgs(args: string | undefined, fallback: unknown = {}): unknown {
@@ -85,11 +66,14 @@ async function invokeSelf<TOutput>(
     callerNodeId: manifest.nodeId,
     provide,
     target: { nodeId: manifest.nodeId },
+    routing: "deterministic",
     input,
   })) as ProtocolInvokeResult<TOutput>;
 }
 
-function parseValidateCommandInput(args: string | undefined): ValidateCertifiedNodeInput | Record<string, unknown> {
+function parseValidateCommandInput(
+  args: string | undefined,
+): ValidateCertifiedNodeInput | Record<string, unknown> {
   const trimmed = args?.trim();
   if (!trimmed) {
     return { packageDir: "." };
@@ -103,81 +87,29 @@ function parseValidateCommandInput(args: string | undefined): ValidateCertifiedN
   return { packageDir: trimmed };
 }
 
-function parsePlanCommandInput(
+function parseBuildCommandInput(
   args: string | undefined,
-): PlanCertifiedNodeFromDescriptionInput | Record<string, unknown> {
+): BuildCertifiedExtensionInput | Record<string, unknown> {
   const trimmed = args?.trim();
   if (!trimmed) {
-    return { description: "" };
+    return { description: "", repoDir: "." };
   }
 
   if (!trimmed.startsWith("{")) {
-    return { description: trimmed };
+    return {
+      description: trimmed,
+      repoDir: ".",
+      applyChanges: true,
+    };
   }
 
   const parsed = parseJsonArgs(trimmed);
   if (!isRecord(parsed)) {
-    return { description: "" };
+    return { description: "", repoDir: "." };
   }
 
-  const envelope = parsed as PiPiPlanCommandEnvelope & Record<string, unknown>;
-  return isRecord(envelope.input) ? (envelope.input as PlanCertifiedNodeFromDescriptionInput) : envelope;
-}
-
-function parseMigrateCommandInput(
-  args: string | undefined,
-): { input: PlanBrownfieldMigrationInput | Record<string, unknown> } {
-  const parsed = parseJsonArgs(args);
-  if (!isRecord(parsed)) {
-    return { input: {} };
-  }
-
-  const envelope = parsed as PiPiMigrateCommandEnvelope & Record<string, unknown>;
-  return {
-    input: isRecord(envelope.input) ? (envelope.input as PlanBrownfieldMigrationInput) : envelope,
-  };
-}
-
-function parseNewCommandInput(
-  args: string | undefined,
-): { destinationDir?: string; input: ScaffoldCertifiedNodeInput | Record<string, unknown> } {
-  const parsed = parseJsonArgs(args);
-  if (!isRecord(parsed)) {
-    return { input: {} };
-  }
-
-  const envelope = parsed as PiPiNewCommandEnvelope & Record<string, unknown>;
-  return {
-    destinationDir: typeof envelope.destinationDir === "string" ? envelope.destinationDir : undefined,
-    input: isRecord(envelope.input) ? (envelope.input as ScaffoldCertifiedNodeInput) : envelope,
-  };
-}
-
-function parseNewPairCommandInput(
-  args: string | undefined,
-): { destinationDir?: string; input: ScaffoldCollaboratingNodesInput | Record<string, unknown> } {
-  const parsed = parseJsonArgs(args);
-  if (!isRecord(parsed)) {
-    return { input: {} };
-  }
-
-  const envelope = parsed as PiPiNewPairCommandEnvelope & Record<string, unknown>;
-  return {
-    destinationDir: typeof envelope.destinationDir === "string" ? envelope.destinationDir : undefined,
-    input: isRecord(envelope.input) ? (envelope.input as ScaffoldCollaboratingNodesInput) : envelope,
-  };
-}
-
-async function writeFiles(rootDir: string, files: Record<string, string>): Promise<void> {
-  const { mkdir, writeFile } = await import("node:fs/promises");
-  const { dirname, join, resolve } = await import("node:path");
-  const resolvedRootDir = resolve(rootDir);
-
-  for (const [relativePath, content] of Object.entries(files)) {
-    const fullPath = join(resolvedRootDir, relativePath);
-    await mkdir(dirname(fullPath), { recursive: true });
-    await writeFile(fullPath, content, "utf8");
-  }
+  const envelope = parsed as BuildCommandEnvelope & Record<string, unknown>;
+  return isRecord(envelope.input) ? (envelope.input as BuildCertifiedExtensionInput) : envelope;
 }
 
 export default function activate(pi: PiRuntime) {
@@ -187,7 +119,7 @@ export default function activate(pi: PiRuntime) {
     ensureProtocolAgentProjection(pi as ProtocolAgentProjectionTarget, fabric);
     if (!fabric.describe(manifest.nodeId)) {
       registerProtocolNode(pi, fabric, {
-        manifest,
+        manifest: manifest as PiProtocolManifest,
         handlers,
         source: {
           packageName: "pi-pi",
@@ -204,7 +136,7 @@ export default function activate(pi: PiRuntime) {
   });
 
   pi.registerCommand?.("pi-pi-template", {
-    description: "Describe the TypeScript Pi Protocol certified-node template",
+    description: "Describe the TypeScript Pi Protocol certified package template",
     handler: async (args, ctx) => {
       try {
         const input = parseJsonArgs(args, {});
@@ -220,53 +152,17 @@ export default function activate(pi: PiRuntime) {
     },
   });
 
-  pi.registerCommand?.("pi-pi-plan", {
-    description: "Interpret a natural-language extension brief into a scaffold-ready certified-node plan",
-    handler: async (args, ctx) => {
-      try {
-        const input = parsePlanCommandInput(args);
-        const result = await invokeSelf<PlanCertifiedNodeFromDescriptionOutput>(
-          fabric,
-          "plan_certified_node_from_description",
-          input,
-        );
-        notifyResult(ctx, result);
-      } catch (error) {
-        ctx.ui.notify(toErrorMessage(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand?.("pi-pi-migrate", {
-    description: "Inspect an existing repository and return a structured brownfield Pi Protocol migration plan",
-    handler: async (args, ctx) => {
-      try {
-        const parsed = parseJsonArgs(args, {});
-        const input = isRecord(parsed) && isRecord((parsed as PiPiMigrateCommandEnvelope).input) ? (parsed as PiPiMigrateCommandEnvelope).input : parsed;
-        const result = await invokeSelf<PlanBrownfieldMigrationOutput>(fabric, "plan_brownfield_migration", input);
-        notifyResult(ctx, result);
-      } catch (error) {
-        ctx.ui.notify(toErrorMessage(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand?.("pi-pi-new", {
+  pi.registerCommand?.("pi-pi-build-certified-extension", {
     description:
-      "Generate a certified node template from JSON input and optionally write it to destinationDir",
+      "Build a protocol-certified package in the target repo, validate it before success, and keep the workflow on the certified builder path.",
     handler: async (args, ctx) => {
       try {
-        const { destinationDir, input } = parseNewCommandInput(args);
-        const result = await invokeSelf<ScaffoldCertifiedNodeOutput>(
+        const input = parseBuildCommandInput(args);
+        const result = await invokeSelf<BuildCertifiedExtensionOutput>(
           fabric,
-          "scaffold_certified_node",
+          "build_certified_extension",
           input,
         );
-
-        if (result.ok && destinationDir) {
-          await writeFiles(destinationDir, result.output.files);
-        }
-
         notifyResult(ctx, result);
       } catch (error) {
         ctx.ui.notify(toErrorMessage(error), "error");
@@ -274,38 +170,14 @@ export default function activate(pi: PiRuntime) {
     },
   });
 
-  pi.registerCommand?.("pi-pi-new-pair", {
-    description:
-      "Generate a collaborating manager/worker pair and optionally write both packages under destinationDir",
-    handler: async (args, ctx) => {
-      try {
-        const { destinationDir, input } = parseNewPairCommandInput(args);
-        const result = await invokeSelf<ScaffoldCollaboratingNodesOutput>(
-          fabric,
-          "scaffold_collaborating_nodes",
-          input,
-        );
-
-        if (result.ok && destinationDir) {
-          await writeFiles(`${destinationDir}/${result.output.manager.packageName}`, result.output.manager.files);
-          await writeFiles(`${destinationDir}/${result.output.worker.packageName}`, result.output.worker.files);
-        }
-
-        notifyResult(ctx, result);
-      } catch (error) {
-        ctx.ui.notify(toErrorMessage(error), "error");
-      }
-    },
-  });
-
-  pi.registerCommand?.("pi-pi-validate", {
-    description: "Run heuristic source-based validation for a candidate certified-node package directory",
+  pi.registerCommand?.("pi-pi-validate-certified-extension", {
+    description: "Validate a protocol-certified package directory and return a compact certification summary",
     handler: async (args, ctx) => {
       try {
         const input = parseValidateCommandInput(args);
         const result = await invokeSelf<ValidateCertifiedNodeOutput>(
           fabric,
-          "validate_certified_node",
+          "validate_certified_extension",
           input,
         );
         notifyResult(ctx, result);

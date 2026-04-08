@@ -10,10 +10,8 @@ import {
 } from "../vendor/pi-protocol-sdk.ts";
 import activate from "../extensions/index.ts";
 import type {
+  BuildCertifiedExtensionOutput,
   DescribeCertifiedTemplateOutput,
-  PlanCertifiedNodeFromDescriptionOutput,
-  ScaffoldCertifiedNodeOutput,
-  ScaffoldCollaboratingNodesOutput,
   ValidateCertifiedNodeOutput,
 } from "../protocol/core.ts";
 
@@ -115,14 +113,6 @@ function printSection(title: string, value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
 
-async function writeScaffold(rootDir: string, files: Record<string, string>): Promise<void> {
-  for (const [relativePath, content] of Object.entries(files)) {
-    const fullPath = path.join(rootDir, relativePath);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, content, "utf8");
-  }
-}
-
 async function invokeTyped<TOutput>(
   fabric: { invoke: (request: ProtocolInvokeRequest) => Promise<ProtocolInvokeResult> },
   request: ProtocolInvokeRequest,
@@ -137,18 +127,20 @@ async function main(): Promise<void> {
   const fabric = activate(runtime);
   await runtime.emit("session_start", { reason: "demo" });
 
-  printSection("registry", fabric.getRegistry());
+  const registry = fabric.getRegistry();
+  printSection("registry", {
+    ...registry,
+    nodes: registry.nodes
+      .map((node) => ({
+        ...node,
+        provides: node.provides.filter((provide) => provide.visibility === "public"),
+      }))
+      .filter((node) => node.provides.length > 0),
+    provides: registry.provides.filter((provide) => provide.visibility === "public"),
+  });
   printSection("activation_assertions", {
     protocolToolRegistered: runtime.getAllTools().some((tool) => tool.name === "protocol"),
   });
-
-  const selfValidate = await invokeTyped<ValidateCertifiedNodeOutput>(fabric, {
-    callerNodeId: "demo-runner",
-    provide: "validate_certified_node",
-    target: { nodeId: "pi-pi" },
-    input: { packageDir: "." },
-  });
-  printSection("validate_pi_pi", selfValidate);
 
   const describe = await invokeTyped<DescribeCertifiedTemplateOutput>(fabric, {
     callerNodeId: "demo-runner",
@@ -158,150 +150,38 @@ async function main(): Promise<void> {
   });
   printSection("describe_certified_template", describe);
 
-  const plan = await invokeTyped<PlanCertifiedNodeFromDescriptionOutput>(fabric, {
+  const freshRepo = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-demo-builder-"));
+  const build = await invokeTyped<BuildCertifiedExtensionOutput>(fabric, {
     callerNodeId: "demo-runner",
-    provide: "plan_certified_node_from_description",
+    provide: "build_certified_extension",
     target: { nodeId: "pi-pi" },
     input: {
-      description:
-        "Build me a certified extension that summarizes markdown notes in the workspace and also gives me a local command.",
+      description: "Build me a certified extension that summarizes markdown notes in the workspace and also gives me a local command.",
+      repoDir: freshRepo,
+      applyChanges: true,
     },
+    handoff: { opaque: true },
   });
-  printSection("plan_certified_node_from_description", plan);
-
-  const scaffold = await invokeTyped<ScaffoldCertifiedNodeOutput>(fabric, {
-    callerNodeId: "demo-runner",
-    provide: "scaffold_certified_node",
-    target: { nodeId: "pi-pi" },
-    input: {
-      packageName: "pi-hello",
-      nodeId: "pi-hello",
-      purpose: "Greets users through a certified protocol package.",
-      provides: [
-        {
-          name: "say_hello",
-          description: "Return a starter greeting response.",
-        },
-      ],
-      useInlineSchemas: false,
-      generateDebugCommands: true,
-    },
-  });
-  printSection("scaffold_certified_node", scaffold);
-
-  if (scaffold.ok === false) {
-    throw new Error(scaffold.error.message);
-  }
-
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-demo-"));
-  await writeScaffold(tmpDir, scaffold.output.files);
+  printSection("build_certified_extension", build);
 
   const validate = await invokeTyped<ValidateCertifiedNodeOutput>(fabric, {
     callerNodeId: "demo-runner",
-    provide: "validate_certified_node",
+    provide: "validate_certified_extension",
     target: { nodeId: "pi-pi" },
-    input: { packageDir: tmpDir },
+    input: { packageDir: freshRepo },
   });
-  printSection("validate_certified_node", {
-    result: validate,
-    scaffoldBootstrapEnsuresProjection: scaffold.output.files["extensions/index.ts"].includes(
-      "ensureProtocolAgentProjection",
-    ),
-  });
-
-  const pair = await invokeTyped<ScaffoldCollaboratingNodesOutput>(fabric, {
-    callerNodeId: "demo-runner",
-    provide: "scaffold_collaborating_nodes",
-    target: { nodeId: "pi-pi" },
-    input: {
-      managerPackageName: "pi-manager",
-      managerNodeId: "pi-manager",
-      workerPackageName: "pi-worker",
-      workerNodeId: "pi-worker",
-      managerProvideName: "delegate_task",
-      workerProvideName: "do_task",
-      workerMode: "agent-backed",
-      generateInternalPromptFiles: true,
-      generateDebugCommands: true,
-    },
-  });
-  printSection("scaffold_collaborating_nodes", pair);
-
-  if (pair.ok === false) {
-    throw new Error(pair.error.message);
-  }
-
-  const pairRootDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-pair-"));
-  const managerDir = path.join(pairRootDir, pair.output.manager.packageName);
-  const workerDir = path.join(pairRootDir, pair.output.worker.packageName);
-  await writeScaffold(managerDir, pair.output.manager.files);
-  await writeScaffold(workerDir, pair.output.worker.files);
-
-  const validateManager = await invokeTyped<ValidateCertifiedNodeOutput>(fabric, {
-    callerNodeId: "demo-runner",
-    provide: "validate_certified_node",
-    target: { nodeId: "pi-pi" },
-    input: { packageDir: managerDir },
-  });
-  const validateWorker = await invokeTyped<ValidateCertifiedNodeOutput>(fabric, {
-    callerNodeId: "demo-runner",
-    provide: "validate_certified_node",
-    target: { nodeId: "pi-pi" },
-    input: { packageDir: workerDir },
-  });
-  printSection("validate_collaborating_pair", {
-    manager: validateManager,
-    worker: validateWorker,
-    managerUsesDelegateInvoke: pair.output.manager.files["protocol/handlers.ts"].includes("ctx.delegate.invoke"),
-    managerBootstrapEnsuresProjection: pair.output.manager.files["extensions/index.ts"].includes(
-      "ensureProtocolAgentProjection",
-    ),
-    workerBootstrapEnsuresProjection: pair.output.worker.files["extensions/index.ts"].includes(
-      "ensureProtocolAgentProjection",
-    ),
-    workerHasInternalPrompt:
-      "protocol/prompts/do_task.md" in pair.output.worker.files ||
-      Object.keys(pair.output.worker.files).some((filePath) => filePath.startsWith("protocol/prompts/")),
-  });
+  printSection("validate_certified_extension", validate);
 
   await runtime.runCommand("pi-pi-template", JSON.stringify({ includeCommandExamples: true }));
   await runtime.runCommand(
-    "pi-pi-plan",
-    "Build me a manager/worker certified pair where the manager delegates research tasks to a worker.",
-  );
-
-  const commandTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-command-"));
-  await runtime.runCommand(
-    "pi-pi-new",
+    "pi-pi-build-certified-extension",
     JSON.stringify({
-      destinationDir: commandTmpDir,
-      input: {
-        packageName: "pi-commanded",
-        nodeId: "pi-commanded",
-        purpose: "Scaffolded from the pi-pi command projection.",
-        provides: [{ name: "ping", description: "Return a starter ping response." }],
-        useInlineSchemas: false,
-      },
+      description: "Build me a certified extension that validates a repository.",
+      repoDir: await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-command-builder-")),
+      applyChanges: true,
     }),
   );
-  await runtime.runCommand("pi-pi-validate", commandTmpDir);
-
-  const pairCommandRootDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-command-pair-"));
-  await runtime.runCommand(
-    "pi-pi-new-pair",
-    JSON.stringify({
-      destinationDir: pairCommandRootDir,
-      input: {
-        managerPackageName: "pi-command-manager",
-        managerNodeId: "pi-command-manager",
-        workerPackageName: "pi-command-worker",
-        workerNodeId: "pi-command-worker",
-        managerProvideName: "delegate_task",
-        workerProvideName: "do_task",
-        workerMode: "deterministic",
-      },
-    }),
-  );
+  await runtime.runCommand("pi-pi-validate-certified-extension", freshRepo);
 
   printSection(
     "command-notifications",

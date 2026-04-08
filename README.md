@@ -1,140 +1,140 @@
 # pi-pi
 
-`pi-pi` is a TypeScript-first Pi Protocol package creator that is also a Pi Protocol certified node.
+`pi-pi` is the authoritative batteries-included builder for **protocol-certified** Pi Protocol extensions/packages.
 
-It follows the protocol itself:
+It is itself a certified node and keeps the model capability-first:
+
+- public contract is a small set of typed `provides`
+- deterministic-first remains the default implementation policy
+- low-level planning/scaffold/migration stages stay behind the node boundary
+- node-local handoff is available natively for internal orchestration
+- handoff now emits a compact host-visible indicator plus separate structured detail records for disclosure surfaces
+- cross-node results stay compact and opaque by default
+- builder output is validated for certification before success is returned
+
+## Public protocol surface
+
+`pi-pi` exposes only:
+
+- `build_certified_extension`
+- `validate_certified_extension`
+- `describe_certified_template`
+
+Everything else is internal.
+
+## Internal builder stages
+
+These remain available only as internal implementation stages inside the node:
+
+- `plan_extension_from_brief`
+- `plan_existing_repo_migration`
+- `scaffold_extension`
+- `scaffold_extension_pair`
+- compatibility aliases
+- low-level validation alias surface
+
+The standard `protocol` projection hides those internals by default.
+
+## Commands
+
+Operator-facing projections stay small too:
+
+- `/pi-pi-template`
+- `/pi-pi-build-certified-extension`
+- `/pi-pi-validate-certified-extension`
+
+## Builder behavior
+
+`build_certified_extension`:
+
+1. inspects the repo state
+2. classifies greenfield vs brownfield
+3. plans internally
+4. scaffolds internally
+5. validates the generated result before success
+6. optionally applies the validated files to disk
+7. returns a compact certified summary instead of low-level planning/scaffold details
+
+Important rules:
+
+- no plain non-certified output
+- no public planning/scaffold clutter
+- no manual non-certified fallback after a matching certified builder is discovered
+- brownfield replacement requires `replaceExisting: true`
+- pair mode is available only when explicitly allowed
+
+## Runtime model
+
+`pi-pi` follows the same protocol rules it generates:
 
 - ships `pi.protocol.json`
 - ensures the shared protocol fabric during activation
-- ensures the batteries-included standard `protocol` projection during runtime startup
+- ensures the batteries-included `protocol` projection on runtime startup
 - registers with the shared protocol fabric on `session_start`
-- exposes canonical protocol `provides`
-- offers Pi commands as projections of those same provides
-- avoids direct imports of sibling certified nodes
-- typechecks with `tsc --noEmit`
-- remains standalone-installable by vendoring the prototype SDK/fabric shim in `vendor/pi-protocol-sdk.ts`
+- unregisters on `session_shutdown`
+- uses the fabric for recursive calls
+- prefers `ctx.delegate.invoke()` for nested protocol work
+- can use `ctx.handoff.run(...)` for node-local orchestration without leaking internal transcript across node boundaries by default
+- host UIs can render the compact `handoff: <nodeId>.<provide>` indicator and keep expanded details collapsed until a disclosure action opens them
 
-## Provides
+## Reuse-or-stop caller rule
 
-- `describe_certified_template`
-- `plan_certified_node_from_description`
-- `plan_brownfield_migration`
-- `scaffold_certified_node`
-- `scaffold_collaborating_nodes`
-- `validate_certified_node`
+When a caller discovers a matching public builder provide like `pi-pi.build_certified_extension`, it should:
 
-## Pi commands
+1. invoke that provide
+2. use the validated result
+3. stop and surface failure if the builder fails
 
-- `/pi-pi-template`
-- `/pi-pi-plan`
-- `/pi-pi-migrate`
-- `/pi-pi-new`
-- `/pi-pi-new-pair`
-- `/pi-pi-validate`
+It should **not** discover `pi-pi` and then improvise a non-certified local fallback.
 
-Important separation:
+## Example protocol flow
 
-- `plan_certified_node_from_description` is a pure planning provide. It turns a natural-language brief into scaffold-ready structured output.
-- `plan_brownfield_migration` is a pure planning provide for existing repositories. It inspects source-based repo structure and returns a migration plan rather than a fresh scaffold.
-- `scaffold_certified_node` is a pure generation provide. It returns a file plan and file contents.
-- `scaffold_collaborating_nodes` is a pure generation provide. It returns two package plans and grouped file contents.
-- `/pi-pi-new`, `/pi-pi-new-pair`, and `/pi-pi-migrate` are operator-facing projections. If you pass `destinationDir`, the scaffold commands write generated files to disk.
+### 1. Discover the node
 
-## Collaborating nodes
+```json
+{ "action": "registry" }
+```
 
-`scaffold_collaborating_nodes` generates two separate certified packages:
+### 2. Inspect the builder
 
-- a manager node with a provide that delegates to a worker through `ctx.delegate.invoke()`
-- a worker node with either:
-  - deterministic implementation mode, or
-  - agent-backed-ready internal implementation mode
+```json
+{ "action": "describe_node", "nodeId": "pi-pi" }
+```
 
-The protocol surface remains capability-first in both cases.
+### 3. Invoke the authoritative builder
 
-Important caveat:
+```json
+{
+  "action": "invoke",
+  "request": {
+    "provide": "build_certified_extension",
+    "target": { "nodeId": "pi-pi" },
+    "input": {
+      "description": "Build me a certified extension that summarizes markdown notes and offers a local command.",
+      "repoDir": "./packages/pi-notes",
+      "applyChanges": true
+    },
+    "handoff": {
+      "opaque": true
+    }
+  }
+}
+```
 
-- the current agent-backed worker mode is a starter scaffold pattern
-- it is not yet a fully realized embedded Pi agent runtime
-- internal prompts remain non-public by default and are not generated as public skills
+### 4. Validate explicitly if needed
 
-If agent-backed worker mode is selected, internal prompt files are generated under a non-discoverable location such as:
-
-- `protocol/prompts/`
-
-They are intentionally **not** generated as public Pi skills.
-
-## Living TODO
-
-For the current completion plan and overnight/session handoff notes, see:
-
-- `TODO.md`
-
-## Internal generation guidance
-
-`pi-pi` may use internal non-discoverable instruction text for interpreting natural-language extension briefs.
-
-Current internal instruction locations:
-
-- `protocol/instructions/plan-certified-node-from-description.md`
-- fallback: `protocol/instructions/default.md`
-- compatibility alias: `protocol/instructions/interpret-extension-brief.md`
-
-The planning path resolves a task-specific internal instruction first and falls back to the default instruction file when needed.
-These files are internal guidance for planning and generation behavior.
-They are not intended to be exposed as public skills by default.
-
-Reference/example prompt guidance for humans lives at:
-
-- `docs/guides/generate-certified-node-prompt.md`
-- `docs/guides/adapt-brownfield-to-pi-protocol-prompt.md`
-
-That guide is only an example/reference. Users should not need to learn rigid prompt syntax just to describe an extension.
-
-## Validation status
-
-`validate_certified_node` is currently an **AST-assisted, source-based validator**.
-
-It checks things like:
-
-- required files
-- manifest structure
-- handler coverage
-- schema presence
-- AST-checked bootstrap structure
-- forbidden direct certified-node imports
-- non-standalone dependency specs such as `file:`, `link:`, and `workspace:`
-
-It does **not** yet do full semantic validation, but it now includes a few targeted semantic guardrails such as catching an obviously wrong `ping` contract that drifts into validation-shaped schemas.
-
-## Runtime model notes
-
-- certified package bootstrap should ensure both `ensureProtocolFabric(...)` and `ensureProtocolAgentProjection(...)`
-- the standard `protocol` projection now also installs a tiny per-runtime prompt-awareness hook so top-level chat prefers protocol discovery/reuse for any code-changing request, while simple questions and explanations stay direct
-- `protocol` registry output is intentionally concise and token-efficient so a plain registry call acts like a compact node-level capability catalog
-- the standard discovery path is tiered: `registry` for compact node summaries, `describe_node` for one node's public provides, then `describe_provide` for the exact contract
-- when the registry gets large, the `protocol` tool stays node-first and should be followed by `describe_node` or `find_provides` instead of scanning a full provide dump
-- in real Pi runtimes, projection/tool registration should happen during `session_start` or equivalent runtime startup, not raw extension loading
-- the standard `protocol` tool is a projection over the protocol, not the protocol itself
-- `ctx.delegate` is the preferred bound recursive delegation surface because trace, caller, budget, and depth context stay attached automatically
-- direct `ctx.fabric.invoke(...)` can still exist in low-level code, but generated collaborating scaffolds now prefer `ctx.delegate.invoke(...)`
-
-## Dependency strategy
-
-### This repository
-
-`pi-pi` vendors the current prototype SDK/fabric implementation in:
-
-- `vendor/pi-protocol-sdk.ts`
-
-This keeps `pi-pi` standalone-installable while still following the shared fabric model prototyped in `pi-protocol`.
-
-### Generated packages
-
-Scaffolded packages default to:
-
-- `@kyvernitria/pi-protocol-sdk@^0.1.0`
-
-You can override that with `sdkDependency` in scaffold input if you want a different published range or a local development dependency strategy.
+```json
+{
+  "action": "invoke",
+  "request": {
+    "provide": "validate_certified_extension",
+    "target": { "nodeId": "pi-pi" },
+    "input": {
+      "packageDir": "./packages/pi-notes"
+    }
+  }
+}
+```
 
 ## Local development
 
@@ -146,137 +146,30 @@ npm run test:routing-policy
 npm run test:validator-fixtures
 npm run test:regressions
 npm run test:sdk-session
+npm run test:handoff
+npm run test:certified-builder
 npm run demo
 ```
 
-The demo verifies that:
+## Demo expectations
 
-1. `pi-pi` loads and registers in the fabric
-2. `pi-pi` ensures the standard `protocol` projection
-2.1. the projection path installs a tiny protocol-aware prompt helper without duplicating it across repeated startup hooks
-2.2. a real Pi SDK `AgentSession` exposes the `protocol` tool and receives the protocol-aware pre-turn prompt nudge
-3. `pi-pi` validates itself successfully
-4. `pi-pi` can describe the certified template
-5. `pi-pi` can interpret a natural-language brief into a structured plan using internal instruction files
-6. `pi-pi` can inspect a brownfield repository and return a structured migration plan
-7. planner heuristics infer richer candidate provides from plain text while staying capability-first
-8. `pi-pi` can scaffold a TypeScript certified-node template
-9. generated bootstrap includes `ensureProtocolAgentProjection(...)`
-10. `pi-pi` can scaffold a collaborating manager/worker pair
-11. generated packages validate successfully
-12. generated manager handlers call workers through `ctx.delegate.invoke()`
-13. scaffolded single-node handlers and schemas become more realistic when the brief clearly implies search, summary, validation, Q&A, task extraction, or classification behavior
-14. command projections remain aligned with the protocol handlers
-15. validator failure fixtures catch bootstrap/session-start and missing-handler edge cases
+The demo proves that:
 
-## Protocol routing policy
+1. `pi-pi` registers into the shared fabric
+2. the `protocol` tool is installed automatically
+3. the public builder surface is small
+4. a fresh repo can be built through `build_certified_extension`
+5. the resulting package validates through `validate_certified_extension`
+6. internal planning/scaffold stages stay hidden from public discovery
 
-Use the standard `protocol` tool when the request is capability-heavy or could reuse installed work.
+## Notes for generated-package authoring
 
-- simple question, explanation, or quick lookup: answer directly
-- build, modify, integrate, migrate, validate, reuse, or multi-step request: check protocol first
-- if no installed capability fits: do the work directly instead of forcing a protocol match
+The generated package model remains:
 
-## Protocol discovery reuse example
+- TypeScript-first
+- capability-first
+- schema-backed
+- standalone-installable
+- protocol-certified by validation, not by naming alone
 
-Use the standard `protocol` tool in tiers:
-
-1. compact registry:
-   - `{ "action": "registry" }`
-2. inspect one likely node:
-   - `{ "action": "describe_node", "nodeId": "pi-pi" }`
-3. inspect one exact provide:
-   - `{ "action": "describe_provide", "nodeId": "pi-pi", "provide": "plan_brownfield_migration" }`
-4. invoke it once the contract fits:
-   - `{ "action": "invoke", "request": { "provide": "plan_brownfield_migration", "target": { "nodeId": "pi-pi" }, "input": { "repoDir": ".", "includeFileHints": true } } }`
-
-For an end-to-end generated-pair runtime proof, also run:
-
-```bash
-npm run demo:pair-runtime
-```
-
-## Install into Pi
-
-Project-local install:
-
-```bash
-pi install -l /var/home/kyvernitria/Applications/pi/pi-pi
-```
-
-Then start Pi in the target project and reload if needed:
-
-```text
-/reload
-```
-
-## Example single-node scaffold input
-
-```json
-{
-  "packageName": "pi-hello",
-  "nodeId": "pi-hello",
-  "purpose": "Greets users through a certified protocol package.",
-  "provides": [
-    {
-      "name": "say_hello",
-      "description": "Return a starter greeting response."
-    }
-  ],
-  "sdkDependency": "^0.1.0",
-  "useInlineSchemas": false,
-  "generateDebugCommands": true,
-  "strictTypes": true
-}
-```
-
-## Example collaborating-pair scaffold input
-
-```json
-{
-  "managerPackageName": "pi-manager",
-  "managerNodeId": "pi-manager",
-  "workerPackageName": "pi-worker",
-  "workerNodeId": "pi-worker",
-  "managerProvideName": "delegate_task",
-  "workerProvideName": "do_task",
-  "workerMode": "agent-backed",
-  "generateInternalPromptFiles": true,
-  "generateDebugCommands": true,
-  "sdkDependency": "^0.1.0",
-  "strictTypes": true
-}
-```
-
-## In Pi
-
-Try:
-
-- `/pi-pi-template`
-- `/pi-pi-plan Build me a certified extension that summarizes markdown notes and also offers a local command.`
-- `/pi-pi-migrate {"repoDir":"./some-existing-repo","includeFileHints":true}`
-- `/pi-pi-new { ...json input... }`
-- `/pi-pi-new-pair { ...json input... }`
-- `/pi-pi-validate ./some-generated-package`
-
-For `/pi-pi-new-pair`, you can also pass:
-
-```json
-{
-  "destinationDir": "./tmp/collaborating-pair",
-  "input": {
-    "managerPackageName": "pi-manager",
-    "managerNodeId": "pi-manager",
-    "workerPackageName": "pi-worker",
-    "workerNodeId": "pi-worker",
-    "managerProvideName": "delegate_task",
-    "workerProvideName": "do_task",
-    "workerMode": "deterministic"
-  }
-}
-```
-
-That writes:
-
-- `./tmp/collaborating-pair/pi-manager/...`
-- `./tmp/collaborating-pair/pi-worker/...`
+For the current checklist and remaining follow-up items, see `TODO.md`.

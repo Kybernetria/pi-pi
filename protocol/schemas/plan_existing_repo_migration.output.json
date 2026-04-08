@@ -1,0 +1,117 @@
+{
+  "type": "object",
+  "required": [
+    "repoDir",
+    "repoSummary",
+    "recommendedShape",
+    "proposedPublicProvides",
+    "proposedProjections",
+    "capabilityMap",
+    "reuseRecommendations",
+    "migrationSteps",
+    "patchGuidance",
+    "heuristicNotes",
+    "manualFollowUps",
+    "confidence",
+    "internalInstruction",
+    "sourceFiles"
+  ],
+  "properties": {
+    "repoDir": { "type": "string" },
+    "repoSummary": {
+      "type": "object",
+      "required": ["packageName", "scripts", "commands", "detectedEntrypoints"],
+      "properties": {
+        "packageName": { "type": ["string", "null"] },
+        "scripts": { "type": "array", "items": { "type": "string" } },
+        "commands": { "type": "array", "items": { "type": "string" } },
+        "detectedEntrypoints": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "recommendedShape": { "type": "string", "enum": ["single-node", "collaborating-pair"] },
+    "proposedPublicProvides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "version": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "effects": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "proposedProjections": { "type": "array", "items": { "type": "string" } },
+    "capabilityMap": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "name", "path", "evidence"],
+        "properties": {
+          "kind": { "type": "string" },
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "reuseRecommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "rationale", "confidence"],
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "rationale": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] }
+        }
+      }
+    },
+    "migrationSteps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "title", "goal", "recommendedFiles", "notes"],
+        "properties": {
+          "phase": { "type": "integer" },
+          "title": { "type": "string" },
+          "goal": { "type": "string" },
+          "recommendedFiles": { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "patchGuidance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "action", "rationale", "starterPatch"],
+        "properties": {
+          "file": { "type": "string" },
+          "action": { "type": "string", "enum": ["create", "adapt", "review"] },
+          "rationale": { "type": "string" },
+          "starterPatch": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "heuristicNotes": { "type": "array", "items": { "type": "string" } },
+    "manualFollowUps": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+    "internalInstruction": {
+      "type": "object",
+      "required": ["pathUsed", "fallbackUsed"],
+      "properties": {
+        "pathUsed": { "type": "string" },
+        "fallbackUsed": { "type": "boolean" }
+      }
+    },
+    "sourceFiles": { "type": "array", "items": { "type": "string" } },
+    "fileHints": {
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}

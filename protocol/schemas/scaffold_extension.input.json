@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "required": ["packageName", "nodeId", "purpose", "provides"],
+  "properties": {
+    "packageName": { "type": "string" },
+    "nodeId": { "type": "string" },
+    "purpose": { "type": "string" },
+    "packageVersion": { "type": "string" },
+    "sdkDependency": { "type": "string" },
+    "useInlineSchemas": { "type": "boolean" },
+    "generateDebugCommands": { "type": "boolean" },
+    "strictTypes": { "type": "boolean" },
+    "provides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "version": { "type": "string" },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "effects": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

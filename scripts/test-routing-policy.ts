@@ -95,10 +95,15 @@ async function main(): Promise<void> {
   assert.ok(prompt.includes("Route simple questions, explanations, and quick lookups directly"));
   assert.ok(
     prompt.includes(
-      "For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses code",
+      "For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses extension code",
     ),
   );
-  assert.ok(prompt.includes("If no installed capability fits, proceed directly"));
+  assert.ok(
+    prompt.includes("If discovery finds a matching public builder provide"),
+  );
+  assert.ok(
+    prompt.includes("If no installed capability fits for an extension-building request"),
+  );
   assert.ok(prompt.includes("Use tiered discovery: start with the compact node-level registry"));
 
   console.log("protocol routing policy passed");

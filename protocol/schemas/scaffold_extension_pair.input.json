@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "required": [
+    "managerPackageName",
+    "managerNodeId",
+    "workerPackageName",
+    "workerNodeId",
+    "managerProvideName",
+    "workerProvideName",
+    "workerMode"
+  ],
+  "properties": {
+    "managerPackageName": { "type": "string" },
+    "managerNodeId": { "type": "string" },
+    "workerPackageName": { "type": "string" },
+    "workerNodeId": { "type": "string" },
+    "managerProvideName": { "type": "string" },
+    "workerProvideName": { "type": "string" },
+    "workerMode": {
+      "type": "string",
+      "enum": ["deterministic", "agent-backed"]
+    },
+    "generateInternalPromptFiles": { "type": "boolean" },
+    "generateDebugCommands": { "type": "boolean" },
+    "packageVersion": { "type": "string" },
+    "sdkDependency": { "type": "string" },
+    "strictTypes": { "type": "boolean" }
+  }
+}

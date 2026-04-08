@@ -1,9 +1,13 @@
-# Brownfield migration planning instruction
+# Compatibility alias: brownfield migration planning instruction
 
-- Inspect the existing repository first.
-- Map commands, scripts, docs, handlers, and bootstrap wiring to protocol provides/projections.
+This internal instruction is retained for compatibility.
+
+Prefer `protocol/instructions/plan-existing-repo-migration.md` for the active planning path.
+
+## Compatibility guidance
+
+- Keep migration planning capability-first.
 - Prefer reuse over replacement.
 - Keep the plan deterministic and source-based.
 - Be explicit about heuristic inferences versus guaranteed findings.
-- If the repo clearly splits orchestration from worker behavior, recommend a collaborating pair; otherwise prefer one node.
 - Do not expose internal instructions as public skills.

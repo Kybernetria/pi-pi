@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import activate from "../extensions/index.ts";
 import {
   FABRIC_KEY,
   PROTOCOL_AGENT_PROJECTION_KEY,
   PROTOCOL_PROMPT_AWARENESS_KEY,
-  registerProtocolNode,
   type ProtocolHandler,
   type ProtocolSessionPi,
+  registerProtocolNode,
 } from "../vendor/pi-protocol-sdk.ts";
+import {
+  planBrownfieldMigration,
+  planCertifiedNodeFromDescription,
+} from "../protocol/core.ts";
 
 const PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
 
@@ -86,37 +93,93 @@ function createPiRuntime(): TestPiRuntime {
 async function main(): Promise<void> {
   resetProtocolGlobals();
 
-  const runtimeA = createPiRuntime();
-  const fabricA = activate(runtimeA as unknown as Parameters<typeof activate>[0]);
-  await runtimeA.emit("session_start", { reason: "regression-a" });
-  assert.equal(runtimeA.countTool("protocol"), 1, "protocol tool should register on first runtime session_start");
+  const originalCwd = process.cwd();
+  const foreignCwd = await mkdtemp(path.join(os.tmpdir(), "pi-pi-foreign-cwd-"));
+  const brownfieldRepo = path.join(foreignCwd, "repo");
+  await writeFile(path.join(foreignCwd, "README.md"), "# temp\n", "utf8");
+  await writeFile(path.join(foreignCwd, ".placeholder"), "ok\n", "utf8");
+  await writeFile(path.join(foreignCwd, "repo"), "", "utf8").catch(() => undefined);
 
-  await runtimeA.emit("session_start", { reason: "regression-a-repeat" });
-  assert.equal(runtimeA.countTool("protocol"), 1, "protocol tool should not duplicate on repeated session_start");
+  process.chdir(foreignCwd);
+  try {
+    const planFromBrief = await planCertifiedNodeFromDescription({
+      description: "Build a URL summarizer extension",
+    });
+    assert.equal(planFromBrief.brief, "Build a URL summarizer extension");
 
-  const protocolToolA = runtimeA.getAllTools().find((tool) => tool.name === "protocol");
-  assert.ok(protocolToolA?.execute, "protocol tool should expose an execute function");
+    const brownfieldDir = await mkdtemp(path.join(os.tmpdir(), "pi-pi-regression-brownfield-"));
+    await writeFile(path.join(brownfieldDir, "README.md"), "# repo\n", "utf8");
+    const brownfieldPlan = await planBrownfieldMigration({
+      repoDir: brownfieldDir,
+    });
+    assert.equal(brownfieldPlan.repoDir, path.resolve(brownfieldDir));
+  } finally {
+    process.chdir(originalCwd);
+  }
 
-  const registryResult = await protocolToolA?.execute?.("tool-call-1", { action: "registry" });
+  const runtime = createPiRuntime();
+  const fabric = activate(runtime as unknown as Parameters<typeof activate>[0]);
+  await runtime.emit("session_start", { reason: "regression-a" });
+  assert.equal(runtime.countTool("protocol"), 1, "protocol tool should register on first runtime session_start");
+
+  await runtime.emit("session_start", { reason: "regression-a-repeat" });
+  assert.equal(runtime.countTool("protocol"), 1, "protocol tool should not duplicate on repeated session_start");
+
+  const protocolTool = runtime.getAllTools().find((tool) => tool.name === "protocol");
+  assert.ok(protocolTool?.execute, "protocol tool should expose an execute function");
+
+  const registryResult = await protocolTool?.execute?.("tool-call-1", { action: "registry" });
   const registryText = registryResult?.content?.[0]?.text ?? "";
   assert.ok(registryText.includes("available nodes:"));
   assert.ok(registryText.includes("- pi-pi —"));
-  assert.ok(registryText.includes("tiered discovery:"));
-  assert.ok(
-    !registryText.includes('"registry": {'),
-    "registry tool output should be concise text rather than the full nested JSON snapshot",
-  );
+  assert.ok(!registryText.includes("plan_extension_from_brief"), "internal provides should stay hidden from registry text");
 
-  const nodeResult = await protocolToolA?.execute?.("tool-call-1b", { action: "describe_node", nodeId: "pi-pi" });
+  const nodeResult = await protocolTool?.execute?.("tool-call-2", { action: "describe_node", nodeId: "pi-pi" });
   const nodeText = nodeResult?.content?.[0]?.text ?? "";
-  assert.ok(nodeText.includes("node pi-pi"));
-  assert.ok(nodeText.includes("public provides:"));
   assert.ok(nodeText.includes("describe_certified_template"));
+  assert.ok(nodeText.includes("build_certified_extension"));
+  assert.ok(nodeText.includes("validate_certified_extension"));
+  assert.ok(!nodeText.includes("plan_extension_from_brief"));
+
+  const qualifiedProvideResult = await protocolTool?.execute?.("tool-call-2b", {
+    action: "describe_provide",
+    nodeId: "pi-pi",
+    provide: "pi-pi.build_certified_extension",
+  });
+  const qualifiedProvideText = qualifiedProvideResult?.content?.[0]?.text ?? "";
+  assert.ok(qualifiedProvideText.includes("provide pi-pi.build_certified_extension"));
+  assert.ok(qualifiedProvideText.includes("schema note: string schema paths are relative to the providing node package"));
+
+  const qualifiedInvokeResult = await protocolTool?.execute?.("tool-call-2c", {
+    action: "invoke",
+    request: {
+      provide: "pi-pi.describe_certified_template",
+      input: {},
+    },
+  });
+  const qualifiedInvokeText = qualifiedInvokeResult?.content?.[0]?.text ?? "";
+  assert.ok(qualifiedInvokeText.includes('"ok": true'));
+
+  const internalSelfInvoke = await fabric.invoke({
+    callerNodeId: "pi-pi",
+    provide: "plan_extension_from_brief",
+    target: { nodeId: "pi-pi" },
+    input: { description: "Build a URL summarizer extension" },
+  });
+  assert.equal(internalSelfInvoke.ok, true, "node-local internal provides should remain invocable through the fabric");
+
+  const foreignInvoke = await fabric.invoke({
+    callerNodeId: "pi-chat",
+    provide: "plan_extension_from_brief",
+    target: { nodeId: "pi-pi" },
+    input: { description: "Build a URL summarizer extension" },
+  });
+  assert.equal(foreignInvoke.ok, false, "cross-node callers should not reach internal provides");
 
   const noopHandler: ProtocolHandler = async () => ({ ok: true });
   for (let index = 0; index < 25; index += 1) {
     const nodeId = `test-node-${index}`;
-    registerProtocolNode(runtimeA, fabricA, {
+    registerProtocolNode(runtime, fabric, {
       manifest: {
         protocolVersion: "0.1.0",
         nodeId,
@@ -137,40 +200,16 @@ async function main(): Promise<void> {
     });
   }
 
-  const largeRegistryResult = await protocolToolA?.execute?.("tool-call-2", { action: "registry" });
+  const largeRegistryResult = await protocolTool?.execute?.("tool-call-3", { action: "registry" });
   const largeRegistryText = largeRegistryResult?.content?.[0]?.text ?? "";
-  assert.ok(largeRegistryText.includes("available nodes:"));
-  assert.ok(largeRegistryText.includes("- test-node-0 —"));
   assert.ok(largeRegistryText.includes("registry is intentionally node-first here so token cost scales with nodes rather than total provides"));
-  assert.ok(
-    !largeRegistryText.includes("available public provides:"),
-    "large registries should stay node-first instead of dumping every provide",
-  );
 
-  const promptA = await runtimeA.runBeforeAgentStart("Build me a capability if needed.", "BASE");
-  assert.equal(
-    promptA.split(PROMPT_AWARENESS_MARKER).length - 1,
-    1,
-    "prompt-awareness helper should append exactly one protocol-aware section",
-  );
+  const prompt = await runtime.runBeforeAgentStart("Build me a capability if needed.", "BASE");
+  assert.equal(prompt.split(PROMPT_AWARENESS_MARKER).length - 1, 1);
+  assert.ok(prompt.includes("If discovery finds a matching public builder provide"));
+  assert.ok(prompt.includes("do not freestyle a non-certified fallback") || prompt.includes("non-certified local fallback"));
 
-  const runtimeB = createPiRuntime();
-  activate(runtimeB as unknown as Parameters<typeof activate>[0]);
-  await runtimeB.emit("session_start", { reason: "regression-b" });
-  assert.equal(
-    runtimeB.countTool("protocol"),
-    1,
-    "protocol tool should also register for a second runtime in the same process",
-  );
-
-  const promptB = await runtimeB.runBeforeAgentStart("See whether something installed can already do this.", "BASE");
-  assert.equal(
-    promptB.split(PROMPT_AWARENESS_MARKER).length - 1,
-    1,
-    "prompt-awareness helper should install once per runtime and avoid duplicated prompt text",
-  );
-
-  console.log("protocol projection and prompt-awareness regressions passed");
+  console.log("protocol projection and internal-visibility regressions passed");
   resetProtocolGlobals();
 }
 

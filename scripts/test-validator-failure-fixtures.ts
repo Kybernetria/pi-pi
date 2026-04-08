@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { validateCertifiedNode, type ValidateCertifiedNodeOutput } from "../protocol/core.ts";
+import { validateExtension, type ValidateCertifiedNodeOutput } from "../protocol/core.ts";
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -74,7 +74,7 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "ok", provide: "p
     "utf8",
   );
 
-  const projectionValidation = (await validateCertifiedNode({
+  const projectionValidation = (await validateExtension({
     packageDir: projectionFixture,
   })) as ValidateCertifiedNodeOutput;
   assert.equal(projectionValidation.pass, false);
@@ -111,7 +111,7 @@ export default function activate(pi: ExtensionAPI) {
     "utf8",
   );
 
-  const missingHandlerValidation = (await validateCertifiedNode({
+  const missingHandlerValidation = (await validateExtension({
     packageDir: missingHandlerFixture,
   })) as ValidateCertifiedNodeOutput;
   assert.equal(missingHandlerValidation.pass, false);

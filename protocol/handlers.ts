@@ -1,5 +1,12 @@
 export {
   describe_certified_template,
+  build_certified_extension,
+  validate_certified_extension,
+  plan_extension_from_brief,
+  plan_existing_repo_migration,
+  scaffold_extension,
+  scaffold_extension_pair,
+  validate_extension,
   plan_certified_node_from_description,
   plan_brownfield_migration,
   scaffold_certified_node,

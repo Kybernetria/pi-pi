@@ -11,6 +11,8 @@
     "test:validator-fixtures": "tsx scripts/test-validator-failure-fixtures.ts",
     "test:regressions": "tsx scripts/test-regressions.ts",
     "test:sdk-session": "tsx scripts/test-sdk-session.ts",
+    "test:handoff": "tsx scripts/test-handoff.ts",
+    "test:certified-builder": "tsx scripts/test-certified-builder.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

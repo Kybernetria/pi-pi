@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "required": [
+    "status",
+    "repoDir",
+    "buildMode",
+    "applied",
+    "packages",
+    "changedFiles",
+    "validation",
+    "assumptions",
+    "summary"
+  ],
+  "properties": {
+    "status": { "type": "string", "enum": ["certified"] },
+    "repoDir": { "type": "string" },
+    "buildMode": { "type": "string" },
+    "applied": { "type": "boolean" },
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["packageName", "nodeId", "packageDir", "changedFiles", "provides"],
+        "properties": {
+          "packageName": { "type": "string" },
+          "nodeId": { "type": "string" },
+          "packageDir": { "type": "string" },
+          "changedFiles": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "provides": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "changedFiles": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["pass", "validationMode", "packageCount"],
+      "properties": {
+        "pass": { "type": "boolean" },
+        "validationMode": { "type": "string" },
+        "packageCount": { "type": "integer" }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "summary": { "type": "string" }
+  }
+}

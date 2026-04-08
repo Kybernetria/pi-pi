@@ -17,3 +17,4 @@ It should only guide internal planning/runtime behavior.
 - Treat commands, tools, and prompts as projections or internals, not the canonical protocol contract.
 - Keep internal prompts/instructions non-public by default.
 - Only recommend a collaborating pair when the brief clearly implies delegation or separable responsibilities.
+- Do not silently switch to local file creation when an extension-building request cannot stay on the protocol path; surface the missing capability explicitly.
