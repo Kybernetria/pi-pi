@@ -27,6 +27,16 @@ async function main(): Promise<void> {
       "Build me a certified extension that searches markdown notes for TODOs, summarizes the findings, and offers a local command.",
   })) as PlanCertifiedNodeFromDescriptionOutput;
 
+  const urlSummaryPlan = (await planExtensionFromBrief({
+    description: "Build me a certified extension that summarizes the contents of a URL.",
+  })) as PlanCertifiedNodeFromDescriptionOutput;
+
+  assert.deepEqual(
+    urlSummaryPlan.candidateProvides.map((provide) => provide.name),
+    ["summarize_url"],
+    "planner should infer a URL-specific summarize provide from plain language",
+  );
+
   assert.equal(notesWorkbenchPlan.recommendedShape, "single-node");
   assert.equal(notesWorkbenchPlan.operatorCommandProjectionSuggested, true);
   assert.deepEqual(

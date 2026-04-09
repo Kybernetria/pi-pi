@@ -126,6 +126,34 @@ async function main(): Promise<void> {
     "fresh repo with only harmless root files should stay on the greenfield builder path",
   );
 
+  const urlRepo = await mkdtemp(path.join(os.tmpdir(), "pi-pi-url-builder-"));
+  const urlBuild = (await invokeProtocolTool(runtimeA, {
+    action: "invoke",
+    request: {
+      provide: "build_certified_extension",
+      target: { nodeId: "pi-pi" },
+      input: {
+        description: "Build a certified extension that summarizes the contents of a URL.",
+        repoDir: urlRepo,
+        applyChanges: true,
+      },
+      handoff: { opaque: true },
+    },
+  })) as {
+    ok: boolean;
+    result?: {
+      ok: boolean;
+      output?: { status: string; packages: Array<{ provides: string[] }> };
+    };
+  };
+  assert.equal(urlBuild.ok, true);
+  assert.equal(urlBuild.result?.ok, true);
+  assert.equal(urlBuild.result?.output?.status, "certified");
+  assert.ok(
+    urlBuild.result?.output?.packages[0]?.provides.includes("summarize_url"),
+    "URL briefs should infer a URL-specific public provide",
+  );
+
   const cwdRepo = await mkdtemp(path.join(os.tmpdir(), "pi-pi-cwd-builder-"));
   const previousCwd = process.cwd();
   await writeFile(path.join(cwdRepo, "LICENSE"), "MIT\n", "utf8");

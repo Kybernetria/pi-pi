@@ -2216,6 +2216,7 @@ function mentionsAny(value: string, needles: string[]): boolean {
 
 type InferredProvideKind =
   | "ping"
+  | "summarize_url"
   | "summarize"
   | "search"
   | "validate"
@@ -2266,11 +2267,14 @@ function isValidationIntent(value: string): boolean {
 
 function detectCapabilityKinds(brief: string): InferredProvideKind[] {
   const detected = new Set<InferredProvideKind>();
+  const hasUrlTerms = mentionsAny(brief, ["url", "urls", "website", "webpage", "web page", "link", "article", "page"]);
+  const hasSummarizeTerms = mentionsAny(brief, ["summary", "summarize", "summarise"]);
 
   if (mentionsAny(brief, ["ping", "pong", "heartbeat", "healthcheck", "health check", "smoke test"])) {
     detected.add("ping");
   }
-  if (mentionsAny(brief, ["summary", "summarize", "summarise"])) detected.add("summarize");
+  if (hasSummarizeTerms && hasUrlTerms) detected.add("summarize_url");
+  else if (hasSummarizeTerms) detected.add("summarize");
   if (mentionsAny(brief, ["search", "find", "lookup", "grep", "research", "investigate"])) detected.add("search");
   if (isValidationIntent(brief)) detected.add("validate");
   if (mentionsAny(brief, ["todo", "todos", "task list", "tasks", "action items", "extract task"])) {
@@ -2301,6 +2305,12 @@ function inferCandidateProvidesFromBrief(brief: string): ScaffoldProvideInput[] 
         pushProvide({
           name: "ping",
           description: "Return a simple pong response for protocol alignment or smoke-test checks.",
+        });
+        break;
+      case "summarize_url":
+        pushProvide({
+          name: "summarize_url",
+          description: "Fetch a URL, extract readable text, and summarize the page content into a typed protocol response.",
         });
         break;
       case "summarize":
@@ -2362,6 +2372,9 @@ function inferCandidateProvidesFromBrief(brief: string): ScaffoldProvideInput[] 
 function inferSingleNodePurpose(brief: string, baseName: string, provides: ScaffoldProvideInput[]): string {
   if (provides.some((provide) => provide.name === "ping")) {
     return "Provides a tiny ping/pong protocol surface for smoke tests and protocol-alignment checks.";
+  }
+  if (provides.some((provide) => provide.name === "summarize_url")) {
+    return "Summarizes URL or webpage content through a TypeScript-first certified protocol package.";
   }
   if (provides.some((provide) => provide.name === "summarize_notes")) {
     return "Summarizes markdown notes through a TypeScript-first certified protocol package.";
@@ -2427,6 +2440,7 @@ const COMMON_BRIEF_STOPWORDS = new Set([
 function inferProvideKind(provide: ScaffoldProvideInput): InferredProvideKind {
   const signature = `${provide.name} ${provide.description}`.toLowerCase();
   if (provide.name === "ping" || mentionsAny(signature, [" ping", "ping ", "pong", "heartbeat", "healthcheck", "health check"])) return "ping";
+  if (mentionsAny(signature, ["url", "urls", "website", "webpage", "web page", "link", "article"]) && mentionsAny(signature, ["summary", "summarize", "summarise", "content", "contents"])) return "summarize_url";
   if (mentionsAny(signature, ["summary", "summarize", "summarise"])) return "summarize";
   if (mentionsAny(signature, ["search", "find", "lookup", "grep", "research"])) return "search";
   if (isValidationIntent(signature)) return "validate";
@@ -2456,6 +2470,32 @@ function inferProvideBlueprint(provide: ScaffoldProvideInput): InferredProvideBl
             nodeId: { type: "string", description: "The current callee nodeId." },
             response: { type: "string", enum: ["pong"], description: "Canonical ping response." },
             echoedNote: { type: "string", description: "Optional caller note echoed back by the starter handler." },
+          },
+        },
+      };
+    case "summarize_url":
+      return {
+        kind: "summarize_url",
+        inputSchema: {
+          type: "object",
+          required: ["url"],
+          properties: {
+            url: { type: "string", description: `URL to fetch and summarize for ${provide.name}` },
+            maxSentences: { type: "integer", description: "Optional upper bound for the summary length." },
+            note: { type: "string", description: "Optional caller note or summary guidance." },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["status", "provide", "nodeId", "url", "summary", "sourceCount"],
+          properties: {
+            status: { type: "string", enum: ["ok"], description: "URL summary completed successfully." },
+            provide: { type: "string", description: "The provide that produced the response." },
+            nodeId: { type: "string", description: "The current callee nodeId." },
+            url: { type: "string", description: "The URL that was summarized." },
+            title: { type: "string", description: "Optional page title extracted from the URL." },
+            summary: { type: "string", description: "Concise summary of the fetched page content." },
+            sourceCount: { type: "number", description: "Count of sources inspected." },
           },
         },
       };
@@ -2897,6 +2937,75 @@ export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Outpu
     nodeId: ctx.calleeNodeId,
     response: "pong",
     echoedNote: typeof input.note === "string" ? input.note : undefined,
+  };
+};`;
+    case "summarize_url":
+      return `interface ${baseName}Input {
+  url: string;
+  maxSentences?: number;
+  note?: string;
+}
+
+interface ${baseName}Output {
+  status: "ok";
+  provide: ${JSON.stringify(provide.name)};
+  nodeId: string;
+  url: string;
+  title?: string;
+  summary: string;
+  sourceCount: number;
+}
+
+function stripUrlHtml(html: string): string {
+  return html
+    .replace(/<script[\\s\\S]*?<\\/script>/gi, " ")
+    .replace(/<style[\\s\\S]*?<\\/style>/gi, " ")
+    .replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\\s+/g, " ")
+    .trim();
+}
+
+function summarizeUrlText(text: string, maxSentences: number): string {
+  const sentences = text
+    .split(/(?<=[.!?])\\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const clipped = sentences.slice(0, Math.max(1, maxSentences));
+  return clipped.join(" ").slice(0, 1000);
+}
+
+export const ${provide.name}: ProtocolHandler<${baseName}Input, ${baseName}Output> = async (ctx, input) => {
+  const response = await fetch(input.url, {
+    headers: {
+      "user-agent": "pi-protocol-url-summarizer/1.0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch ' + input.url + ': ' + response.status + ' ' + response.statusText);
+  }
+
+  const html = await response.text();
+  const title = html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1]?.trim();
+  const readableText = stripUrlHtml(html);
+  const maxSentences = Number.isFinite(input.maxSentences) && (input.maxSentences ?? 0) > 0 ? Math.floor(input.maxSentences ?? 3) : 3;
+  const summary = summarizeUrlText(readableText, maxSentences);
+
+  return {
+    status: "ok",
+    provide: ${JSON.stringify(provide.name)},
+    nodeId: ctx.calleeNodeId,
+    url: input.url,
+    title: title || undefined,
+    summary,
+    sourceCount: readableText ? 1 : 0,
   };
 };`;
     case "summarize":

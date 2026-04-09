@@ -13,6 +13,7 @@ When useful, mention:
 - whether a simple local command would help operators
 - whether it should remain deterministic or use agent-backed internals
 - whether it should be one node or a collaborating pair
+- whether it should summarize URLs/web pages, in which case say that plainly
 - whether internal orchestration should use native node-local handoff with a compact visible indicator and separate structured detail records
 - whether the current workspace is the target repoDir, so the builder can be invoked directly without hunting for schema paths
 
