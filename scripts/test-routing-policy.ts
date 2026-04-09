@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import activate from "../extensions/index.ts";
 import {
   classifyProtocolRoutingIntent,
-  ensureProtocolPromptAwareness,
   FABRIC_KEY,
   PROTOCOL_AGENT_PROJECTION_KEY,
+  PROTOCOL_CONVERSATION_RENDERER_KEY,
+  PROTOCOL_CONVERSATION_ROUTING_KEY,
+  PROTOCOL_CONVERSATION_STATE_KEY,
   PROTOCOL_PROMPT_AWARENESS_KEY,
+  PROTOCOL_SUBAGENT_STATUS_RENDERER_KEY,
+  PROTOCOL_SUBAGENT_STREAM_RENDERER_KEY,
   type ProtocolSessionPi,
 } from "../vendor/pi-protocol-sdk.ts";
 
@@ -12,7 +17,12 @@ type EventHandler = (payload?: unknown) => Promise<unknown> | unknown;
 
 interface TestPiRuntime extends ProtocolSessionPi {
   on: (event: string, handler: EventHandler) => void;
+  emit: (event: string, payload?: unknown) => Promise<void>;
   runBeforeAgentStart: (prompt: string, systemPrompt: string) => Promise<string>;
+  registerTool: (tool: { name: string }) => void;
+  registerMessageRenderer: (_customType: string, _renderer: unknown) => void;
+  registerCommand: (_name: string, _command: unknown) => void;
+  sendMessage: (_message: unknown, _options?: unknown) => void;
   getAllTools?: () => Array<{ name: string }>;
   getActiveTools?: () => string[];
 }
@@ -20,12 +30,17 @@ interface TestPiRuntime extends ProtocolSessionPi {
 function resetProtocolGlobals(): void {
   delete (globalThis as Record<PropertyKey, unknown>)[FABRIC_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_AGENT_PROJECTION_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_RENDERER_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_ROUTING_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_STATE_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_PROMPT_AWARENESS_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_SUBAGENT_STATUS_RENDERER_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_SUBAGENT_STREAM_RENDERER_KEY];
 }
 
 function createPiRuntime(): TestPiRuntime {
   const listeners = new Map<string, EventHandler[]>();
-  const tools = [{ name: "protocol" }];
+  const tools: Array<{ name: string }> = [];
 
   return {
     appendEntry() {
@@ -35,6 +50,11 @@ function createPiRuntime(): TestPiRuntime {
       const current = listeners.get(event) ?? [];
       current.push(handler);
       listeners.set(event, current);
+    },
+    async emit(event: string, payload: unknown = {}) {
+      for (const handler of listeners.get(event) ?? []) {
+        await handler(payload);
+      }
     },
     async runBeforeAgentStart(prompt: string, systemPrompt: string) {
       let currentSystemPrompt = systemPrompt;
@@ -51,8 +71,20 @@ function createPiRuntime(): TestPiRuntime {
       }
       return currentSystemPrompt;
     },
+    registerTool(tool: { name: string }) {
+      tools.push(tool);
+    },
+    registerMessageRenderer() {
+      // no-op
+    },
+    registerCommand() {
+      // no-op
+    },
+    sendMessage() {
+      // no-op
+    },
     getAllTools() {
-      return tools;
+      return [...tools];
     },
     getActiveTools() {
       return tools.map((tool) => tool.name);
@@ -87,24 +119,18 @@ async function main(): Promise<void> {
   );
 
   const runtime = createPiRuntime();
-  ensureProtocolPromptAwareness(runtime as unknown as Parameters<typeof ensureProtocolPromptAwareness>[0], {
-    toolName: "protocol",
-  });
+  activate(runtime as never);
+  await runtime.emit("session_start", { reason: "routing-policy" });
 
   const prompt = await runtime.runBeforeAgentStart("Build me a URL summarizer extension.", "BASE");
-  assert.ok(prompt.includes("Route simple questions, explanations, and quick lookups directly"));
-  assert.ok(
-    prompt.includes(
-      "For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses extension code",
-    ),
-  );
-  assert.ok(
-    prompt.includes("If discovery finds a matching public builder provide"),
-  );
-  assert.ok(
-    prompt.includes("If no installed capability fits for an extension-building request"),
-  );
-  assert.ok(prompt.includes("Use tiered discovery: start with the compact node-level registry"));
+  assert.ok(prompt.includes("Use `protocol` only for protocol work"));
+  assert.ok(prompt.includes("Valid top-level protocol actions are exactly"));
+  assert.ok(prompt.includes("Use `query` only as the nested filter object for `find_provides`"));
+  assert.ok(prompt.includes("discover a public provide before doing local work"));
+  assert.ok(prompt.includes("registry -> describe_node -> describe_provide -> invoke"));
+  assert.ok(prompt.includes("ask that node") && prompt.includes("invoke its chat-like provide"));
+  assert.ok(prompt.includes("For general chat, use `input.message`"));
+  assert.ok(prompt.includes("usually stop") || prompt.includes("visible conversational invoke result"));
 
   console.log("protocol routing policy passed");
   resetProtocolGlobals();

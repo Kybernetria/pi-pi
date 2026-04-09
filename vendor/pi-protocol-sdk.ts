@@ -1,13 +1,53 @@
-import { Type } from "@mariozechner/pi-ai";
-import { Text } from "@mariozechner/pi-tui";
+const Type = {
+  Any() {
+    return {};
+  },
+  String() {
+    return { type: "string" };
+  },
+  Number() {
+    return { type: "number" };
+  },
+  Boolean() {
+    return { type: "boolean" };
+  },
+  Null() {
+    return { type: "null" };
+  },
+  Literal(value: string | number | boolean | null) {
+    return { const: value, type: value === null ? "null" : typeof value };
+  },
+  Array(items: unknown) {
+    return { type: "array", items };
+  },
+  Object(properties: Record<string, unknown> = {}) {
+    return { type: "object", properties };
+  },
+  Union(options: unknown[]) {
+    return { anyOf: options };
+  },
+  Optional(schema: Record<string, unknown>) {
+    return { ...schema, optional: true };
+  },
+};
 
 export const FABRIC_KEY = Symbol.for("pi-protocol.fabric");
 export const PROTOCOL_AGENT_PROJECTION_KEY = Symbol.for("pi-protocol.agent-projection");
 export const PROTOCOL_PROMPT_AWARENESS_KEY = Symbol.for("pi-protocol.prompt-awareness");
 export const PROTOCOL_HANDOFF_RENDERER_KEY = Symbol.for("pi-protocol.handoff-renderer");
+export const PROTOCOL_INVOKE_RESULT_RENDERER_KEY = Symbol.for("pi-protocol.invoke-result-renderer");
+export const PROTOCOL_CONVERSATION_RENDERER_KEY = Symbol.for("pi-protocol.conversation-renderer");
+export const PROTOCOL_SUBAGENT_STATUS_RENDERER_KEY = Symbol.for("pi-protocol.subagent-status-renderer");
+export const PROTOCOL_SUBAGENT_STREAM_RENDERER_KEY = Symbol.for("pi-protocol.subagent-stream-renderer");
+export const PROTOCOL_CONVERSATION_ROUTING_KEY = Symbol.for("pi-protocol.conversation-routing");
+export const PROTOCOL_CONVERSATION_STATE_KEY = Symbol.for("pi-protocol.conversation-state");
 export const PROTOCOL_TOOL_NAME = "protocol";
-const PROTOCOL_HANDOFF_MESSAGE_TYPE = "protocol-handoff";
-const PROTOCOL_PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
+export const PROTOCOL_HANDOFF_MESSAGE_TYPE = "protocol-handoff";
+export const PROTOCOL_INVOKE_RESULT_MESSAGE_TYPE = "protocol-invoke-result";
+export const PROTOCOL_CONVERSATION_MESSAGE_TYPE = "protocol-conversation";
+export const PROTOCOL_SUBAGENT_STATUS_MESSAGE_TYPE = "protocol-subagent-status";
+export const PROTOCOL_SUBAGENT_STREAM_MESSAGE_TYPE = "protocol-subagent-stream";
+export const PROTOCOL_PROMPT_AWARENESS_MARKER = "## Protocol-aware capability reuse";
 const REGISTRY_SUMMARY_THRESHOLD = 40;
 
 export type ProtocolRoutingIntent = "direct" | "protocol-first";
@@ -277,7 +317,7 @@ export interface ProtocolToolProvideFilter extends Omit<ProtocolProvideFilter, "
 }
 
 export interface ProtocolToolInput {
-  action: ProtocolToolRequest["action"];
+  action: ProtocolToolRequest["action"] | "query";
   nodeId?: string;
   provide?: string;
   query?: {
@@ -294,7 +334,7 @@ export interface ProtocolToolInput {
       nodeId?: string;
       tagsAny?: string[];
     };
-    routing?: RoutingMode;
+    routing?: RoutingMode | "local" | "public";
     modelHint?: ModelHint;
     budget?: ProtocolBudget;
     handoff?: ProtocolHandoffDirective;
@@ -415,10 +455,132 @@ export interface ProtocolHandoffMessageDetails {
   events: ProtocolHandoffDetailEntry[];
 }
 
+export type ProtocolSubagentRunStatus =
+  | "queued"
+  | "running"
+  | "streaming"
+  | "waiting_user"
+  | "waiting_caller"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface ProtocolSubagentEventBase {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  nodeId: string;
+  provide: string;
+  conversationToken?: string;
+  runId?: string;
+  depth: number;
+  timestamp: number;
+}
+
+export interface ProtocolSubagentStartedEvent extends ProtocolSubagentEventBase {
+  kind: "subagent_started";
+  label?: string;
+  breadcrumb?: string[];
+  summary?: string;
+}
+
+export interface ProtocolSubagentStatusEvent extends ProtocolSubagentEventBase {
+  kind: "subagent_status";
+  status: ProtocolSubagentRunStatus;
+  label?: string;
+  breadcrumb?: string[];
+  summary?: string;
+  error?: {
+    code?: string;
+    message: string;
+  };
+}
+
+export interface ProtocolSubagentMessageDeltaEvent extends ProtocolSubagentEventBase {
+  kind: "subagent_message_delta";
+  messageId: string;
+  delta: string;
+}
+
+export interface ProtocolSubagentMessageCompletedEvent extends ProtocolSubagentEventBase {
+  kind: "subagent_message_completed";
+  messageId: string;
+  text: string;
+}
+
+export interface ProtocolSubagentToolEvent extends ProtocolSubagentEventBase {
+  kind: "subagent_tool_started" | "subagent_tool_updated" | "subagent_tool_completed";
+  toolName: string;
+  toolCallId?: string;
+  summary?: string;
+}
+
+export type ProtocolSubagentStreamEvent =
+  | ProtocolSubagentMessageDeltaEvent
+  | ProtocolSubagentMessageCompletedEvent
+  | ProtocolSubagentToolEvent;
+
+export type ProtocolSubagentLifecycleEvent = ProtocolSubagentStartedEvent | ProtocolSubagentStatusEvent;
+
+export type ProtocolContinuationState = "awaiting_user" | "awaiting_caller" | "closed";
+
+export interface ProtocolConversationOwner {
+  nodeId: string;
+  provide: string;
+  label?: string;
+}
+
+export interface ProtocolConversationContinuation {
+  token: string;
+  state: ProtocolContinuationState;
+  owner: ProtocolConversationOwner;
+}
+
+export interface ProtocolActiveConversationFrame {
+  token: string;
+  nodeId: string;
+  provide: string;
+  label?: string;
+  state: ProtocolContinuationState;
+}
+
+export interface ProtocolConversationSnapshot {
+  delegated: boolean;
+  ownerLabel: string;
+  breadcrumb: string[];
+  activeFrame?: ProtocolActiveConversationFrame;
+  frames: ProtocolActiveConversationFrame[];
+}
+
+export interface ProtocolConversationMessageDetails {
+  delegated: boolean;
+  ownerLabel: string;
+  breadcrumb: string[];
+  activeFrame?: ProtocolActiveConversationFrame;
+}
+
+export interface ProtocolInvokeResultMessageDetails {
+  nodeId: string;
+  provide: string;
+  status?: string;
+  reply?: string;
+  reasons?: string[];
+  questions?: string[];
+  continuationState?: ProtocolContinuationState;
+  continuationOwnerLabel?: string;
+  continuationToken?: string;
+  error?: {
+    code: ProtocolErrorCode;
+    message: string;
+  };
+}
+
 export interface ProtocolSessionPi {
   appendEntry?: (kind: string, data: unknown) => void;
   sendMessage?: (message: unknown, options?: unknown) => void;
   events?: unknown;
+  getAllTools?: () => Array<{ name: string }>;
+  getActiveTools?: () => string[];
 }
 
 interface ProtocolMessageRendererLike {
@@ -433,17 +595,31 @@ export interface ProtocolFabricOptions {
 export interface ProtocolAgentProjectionTarget {
   registerTool?: (tool: unknown) => void;
   registerMessageRenderer?: (customType: string, renderer: ProtocolMessageRendererLike) => void;
+  sendMessage?: (message: unknown, options?: unknown) => void;
   getAllTools?: () => Array<{ name: string }>;
   getActiveTools?: () => string[];
-  on?: (
-    event: "before_agent_start",
-    handler: (
-      event: { prompt: string; systemPrompt: string },
-    ) =>
-      | { systemPrompt?: string }
-      | void
-      | Promise<{ systemPrompt?: string } | void>,
-  ) => void;
+  on?: {
+    (
+      event: "before_agent_start",
+      handler: (
+        event: { prompt: string; systemPrompt: string },
+      ) =>
+        | { systemPrompt?: string }
+        | void
+        | Promise<{ systemPrompt?: string } | void>,
+    ): void;
+    (
+      event: "input",
+      handler: (
+        event: { text: string; images?: unknown[]; source: "interactive" | "rpc" | "extension" },
+      ) =>
+        | { action: "continue" }
+        | { action: "transform"; text: string; images?: unknown[] }
+        | { action: "handled" }
+        | void
+        | Promise<{ action: "continue" } | { action: "transform"; text: string; images?: unknown[] } | { action: "handled" } | void>,
+    ): void;
+  };
 }
 
 export interface ProtocolAgentProjectionOptions {
@@ -472,6 +648,15 @@ export interface ProtocolPromptAwarenessOptions {
 
 interface ProtocolPerTargetRegistrationState {
   toolNamesByTarget: WeakMap<object, Set<string>>;
+}
+
+interface ProtocolConversationRuntimeState {
+  frames: ProtocolActiveConversationFrame[];
+  lastFingerprint?: string;
+}
+
+interface ProtocolPerTargetConversationState {
+  runtimeByTarget: WeakMap<object, ProtocolConversationRuntimeState>;
 }
 
 export interface ProtocolCallContext<TBudget extends ProtocolBudget = ProtocolBudget> {
@@ -811,11 +996,13 @@ export function createProtocolFabric(
         depth,
         maxDepth,
       });
+      const basePi = (pi ?? {}) as ProtocolSessionPi;
       const sessionPi = {
-        appendEntry,
-        sendMessage: pi.sendMessage,
-        events: pi.events,
-      };
+        ...(typeof pi === "object" && pi !== null ? (pi as Record<string, unknown>) : {}),
+        appendEntry: appendEntry as ProtocolSessionPi["appendEntry"],
+        sendMessage: basePi.sendMessage,
+        events: basePi.events,
+      } as Required<Pick<ProtocolSessionPi, "appendEntry">> & Omit<ProtocolSessionPi, "appendEntry">;
 
       const ctx: ProtocolCallContext = {
         traceId,
@@ -884,6 +1071,8 @@ export function createProtocolFabric(
             durationMs: Date.now() - startedAt,
           },
         });
+
+        applyProtocolConversationContinuation(pi, internalReq.callerNodeId, extractProtocolConversationContinuation(output));
 
         return {
           ok: true,
@@ -1192,6 +1381,21 @@ function getProtocolPerTargetState(key: symbol): ProtocolPerTargetRegistrationSt
   return created;
 }
 
+function getProtocolConversationPerTargetState(key: symbol): ProtocolPerTargetConversationState {
+  const globals = globalThis as Record<PropertyKey, unknown>;
+  const existing = globals[key] as ProtocolPerTargetConversationState | undefined;
+
+  if (existing?.runtimeByTarget instanceof WeakMap) {
+    return existing;
+  }
+
+  const created: ProtocolPerTargetConversationState = {
+    runtimeByTarget: new WeakMap<object, ProtocolConversationRuntimeState>(),
+  };
+  globals[key] = created;
+  return created;
+}
+
 function toRegistrationTarget(value: unknown): object | null {
   if ((typeof value === "object" || typeof value === "function") && value !== null) {
     return value;
@@ -1211,13 +1415,206 @@ function getRegisteredToolNames(state: ProtocolPerTargetRegistrationState, targe
   return created;
 }
 
-function listVisibleToolNames(pi: ProtocolAgentProjectionTarget): Set<string> {
-  const activeToolNames = pi.getActiveTools?.() ?? [];
-  if (activeToolNames.length > 0) {
-    return new Set(activeToolNames);
+function getProtocolConversationRuntimeState(target: object | null): ProtocolConversationRuntimeState | null {
+  if (!target) return null;
+
+  const state = getProtocolConversationPerTargetState(PROTOCOL_CONVERSATION_STATE_KEY);
+  const existing = state.runtimeByTarget.get(target);
+  if (existing) {
+    return existing;
   }
 
-  return new Set((pi.getAllTools?.() ?? []).map((tool) => tool.name));
+  const created: ProtocolConversationRuntimeState = {
+    frames: [],
+  };
+  state.runtimeByTarget.set(target, created);
+  return created;
+}
+
+function getActiveProtocolConversationFrame(state: ProtocolConversationRuntimeState): ProtocolActiveConversationFrame | undefined {
+  for (let index = state.frames.length - 1; index >= 0; index -= 1) {
+    const frame = state.frames[index];
+    if (frame.state === "awaiting_user") {
+      return frame;
+    }
+  }
+
+  return undefined;
+}
+
+function toProtocolConversationSnapshot(state: ProtocolConversationRuntimeState | null): ProtocolConversationSnapshot {
+  const activeFrame = state ? getActiveProtocolConversationFrame(state) : undefined;
+  const activeIndex = activeFrame ? state?.frames.findIndex((frame) => frame.token === activeFrame.token) ?? -1 : -1;
+  const activeFrames = activeIndex >= 0 ? state?.frames.slice(0, activeIndex + 1) ?? [] : [];
+  const breadcrumb = ["main", ...activeFrames.map((frame) => frame.label || frame.nodeId)];
+
+  return {
+    delegated: !!activeFrame,
+    ownerLabel: activeFrame?.label || activeFrame?.nodeId || "main agent",
+    breadcrumb,
+    activeFrame,
+    frames: state?.frames.map((frame) => ({ ...frame })) ?? [],
+  };
+}
+
+export function getProtocolConversationSnapshot(target: ProtocolSessionPi | ProtocolAgentProjectionTarget): ProtocolConversationSnapshot {
+  return toProtocolConversationSnapshot(getProtocolConversationRuntimeState(toRegistrationTarget(target)));
+}
+
+export function resetProtocolConversationState(target: ProtocolSessionPi | ProtocolAgentProjectionTarget): void {
+  const runtimeState = getProtocolConversationRuntimeState(toRegistrationTarget(target));
+  if (!runtimeState) {
+    return;
+  }
+
+  runtimeState.frames.length = 0;
+  runtimeState.lastFingerprint = undefined;
+}
+
+function protocolConversationFingerprint(snapshot: ProtocolConversationSnapshot): string {
+  return JSON.stringify({
+    delegated: snapshot.delegated,
+    ownerLabel: snapshot.ownerLabel,
+    breadcrumb: snapshot.breadcrumb,
+    activeFrame: snapshot.activeFrame,
+  });
+}
+
+function renderProtocolConversationSummary(snapshot: ProtocolConversationSnapshot): string {
+  const owner = snapshot.delegated ? snapshot.ownerLabel : "main agent";
+  const breadcrumb = snapshot.breadcrumb.join(" > ");
+  return `Talking to: ${owner}${breadcrumb ? `\n${breadcrumb}` : ""}`;
+}
+
+function emitProtocolConversationMessage(
+  projection: Pick<ProtocolAgentProjectionTarget, "sendMessage">,
+  state: ProtocolConversationRuntimeState,
+): void {
+  if (!projection.sendMessage) {
+    return;
+  }
+
+  const snapshot = toProtocolConversationSnapshot(state);
+  const fingerprint = protocolConversationFingerprint(snapshot);
+  if (state.lastFingerprint === fingerprint) {
+    return;
+  }
+
+  state.lastFingerprint = fingerprint;
+  projection.sendMessage({
+    customType: PROTOCOL_CONVERSATION_MESSAGE_TYPE,
+    content: renderProtocolConversationSummary(snapshot),
+    display: true,
+    details: {
+      delegated: snapshot.delegated,
+      ownerLabel: snapshot.delegated ? snapshot.ownerLabel : "main agent",
+      breadcrumb: snapshot.breadcrumb,
+      activeFrame: snapshot.activeFrame,
+    } satisfies ProtocolConversationMessageDetails,
+  });
+}
+
+function isProtocolConversationContinuation(value: unknown): value is ProtocolConversationContinuation {
+  return !!value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && typeof (value as { token?: unknown }).token === "string"
+    && (((value as { state?: unknown }).state === "awaiting_user")
+      || ((value as { state?: unknown }).state === "awaiting_caller")
+      || ((value as { state?: unknown }).state === "closed"))
+    && !!(value as { owner?: unknown }).owner
+    && typeof ((value as { owner?: { nodeId?: unknown } }).owner?.nodeId) === "string"
+    && typeof ((value as { owner?: { provide?: unknown } }).owner?.provide) === "string";
+}
+
+function extractProtocolConversationContinuation(output: unknown): ProtocolConversationContinuation | undefined {
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    return undefined;
+  }
+
+  const continuation = (output as { continuation?: unknown }).continuation;
+  return isProtocolConversationContinuation(continuation) ? continuation : undefined;
+}
+
+function applyProtocolConversationContinuation(
+  projection: Pick<ProtocolAgentProjectionTarget, "sendMessage">,
+  callerNodeId: string,
+  continuation: ProtocolConversationContinuation | undefined,
+): void {
+  const runtimeState = getProtocolConversationRuntimeState(toRegistrationTarget(projection));
+  if (!runtimeState || !continuation) {
+    return;
+  }
+
+  const nextFrame: ProtocolActiveConversationFrame = {
+    token: continuation.token,
+    nodeId: continuation.owner.nodeId,
+    provide: continuation.owner.provide,
+    label: continuation.owner.label,
+    state: continuation.state,
+  };
+  const existingIndex = runtimeState.frames.findIndex((frame) => frame.token === continuation.token);
+
+  if (existingIndex >= 0) {
+    if (continuation.state === "closed") {
+      runtimeState.frames.splice(existingIndex);
+    } else {
+      runtimeState.frames[existingIndex] = nextFrame;
+      runtimeState.frames.splice(existingIndex + 1);
+    }
+    emitProtocolConversationMessage(projection, runtimeState);
+    return;
+  }
+
+  if (continuation.state === "closed") {
+    emitProtocolConversationMessage(projection, runtimeState);
+    return;
+  }
+
+  const parentIndex = [...runtimeState.frames]
+    .map((frame, index) => ({ frame, index }))
+    .reverse()
+    .find(({ frame }) => frame.nodeId === callerNodeId)?.index ?? -1;
+
+  if (parentIndex >= 0) {
+    runtimeState.frames.splice(parentIndex + 1);
+    runtimeState.frames.push(nextFrame);
+  } else if (continuation.state === "awaiting_user") {
+    runtimeState.frames.length = 0;
+    runtimeState.frames.push(nextFrame);
+  } else {
+    runtimeState.frames.length = 0;
+  }
+
+  emitProtocolConversationMessage(projection, runtimeState);
+}
+
+export type ProtocolConversationResetMode = "all" | "active-frame";
+
+export function clearProtocolConversationState(
+  target: ProtocolSessionPi | ProtocolAgentProjectionTarget,
+  mode: ProtocolConversationResetMode = "all",
+): void {
+  const registrationTarget = toRegistrationTarget(target);
+  const runtimeState = getProtocolConversationRuntimeState(registrationTarget);
+  if (!runtimeState) {
+    return;
+  }
+
+  if (mode === "all") {
+    runtimeState.frames.length = 0;
+  } else {
+    const activeFrame = getActiveProtocolConversationFrame(runtimeState);
+    if (!activeFrame) {
+      return;
+    }
+    const activeIndex = runtimeState.frames.findIndex((frame) => frame.token === activeFrame.token);
+    if (activeIndex >= 0) {
+      runtimeState.frames.splice(activeIndex, 1);
+    }
+  }
+
+  emitProtocolConversationMessage(target, runtimeState);
 }
 
 export function classifyProtocolRoutingIntent(prompt: string): ProtocolRoutingIntent {
@@ -1241,113 +1638,1016 @@ export function classifyProtocolRoutingIntent(prompt: string): ProtocolRoutingIn
   return "direct";
 }
 
-function renderProtocolPromptAwareness(toolName: string): string {
-  return `${PROTOCOL_PROMPT_AWARENESS_MARKER}
-- Route simple questions, explanations, and quick lookups directly; do not force protocol discovery when it is unnecessary.
-- For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses extension code, check \`${toolName}\` first for matching installed public provides before doing local work.
-- Prefer reusing and invoking discovered public provides when they already satisfy the request.
-- If discovery finds a matching public builder provide, invoke it and keep the work on that certified path.
-- If a matching builder provide fails or is insufficient, stop and surface that failure explicitly instead of improvising a non-certified local fallback.
-- Use tiered discovery: start with the compact node-level registry, then inspect likely nodes with \`describe_node\`, then inspect exact contracts with \`describe_provide\`.
-- Canonical invoke shape: {"action":"invoke","request":{"provide":"<provide>","target":{"nodeId":"<nodeId>"},"input":{...}}}
-- Do not prefix the provide with the nodeId; put the node in request.target.nodeId.
-- If no installed capability fits for an extension-building request, stop and surface that failure explicitly instead of silently creating files locally.
-- When the registry is large, prefer \`find_provides\` over scanning the full registry dump.`;
+function isConversationalProtocolOutput(value: unknown): value is {
+  status?: string;
+  reply: string;
+  reasons?: string[];
+  questions?: string[];
+} {
+  return !!value && typeof value === "object" && !Array.isArray(value) && typeof (value as { reply?: unknown }).reply === "string";
 }
 
-// Keep this helper internal and tiny: it only appends one short turn-level nudge so
-// top-level chat remembers to discover/reuse protocol capabilities before generating new code.
-export function ensureProtocolPromptAwareness(
-  pi: ProtocolAgentProjectionTarget,
-  options: ProtocolPromptAwarenessOptions = {},
-): { toolName: string; installed: boolean } {
-  const toolName = options.toolName?.trim() || PROTOCOL_TOOL_NAME;
-  if (!pi.on) {
-    return { toolName, installed: false };
+function formatConversationalProtocolOutput(value: {
+  status?: string;
+  reply: string;
+  reasons?: string[];
+  questions?: string[];
+}): string {
+  const lines = [value.reply];
+
+  if (value.questions?.length) {
+    lines.push("", "Questions:", ...value.questions.map((question) => `- ${question}`));
+  }
+  if (value.reasons?.length) {
+    lines.push("", "Reasons:", ...value.reasons.map((reason) => `- ${reason}`));
   }
 
-  const target = toRegistrationTarget(pi);
-  const state = getProtocolPerTargetState(PROTOCOL_PROMPT_AWARENESS_KEY);
-  const registeredToolNames = getRegisteredToolNames(state, target);
-  if (registeredToolNames?.has(toolName)) {
-    return { toolName, installed: false };
+  return lines.join("\n");
+}
+
+function formatProtocolSubagentStarted(event: ProtocolSubagentStartedEvent): string {
+  const owner = `${event.nodeId}.${event.provide}`;
+  const breadcrumb = event.breadcrumb?.join(" > ") ?? owner;
+  const summary = event.summary?.trim();
+  return `${owner} — started${summary ? `
+${summary}` : ""}${breadcrumb ? `
+${breadcrumb}` : ""}`;
+}
+
+function formatProtocolSubagentStatus(event: ProtocolSubagentStatusEvent): string {
+  const owner = `${event.nodeId}.${event.provide}`;
+  const breadcrumb = event.breadcrumb?.join(" > ") ?? owner;
+  return `${owner} — ${event.status}${breadcrumb ? `
+${breadcrumb}` : ""}`;
+}
+
+function formatProtocolSubagentStream(event: ProtocolSubagentStreamEvent): string {
+  switch (event.kind) {
+    case "subagent_message_delta":
+      return `${event.nodeId}.${event.provide} — message
+${event.delta}`;
+    case "subagent_message_completed":
+      return `${event.nodeId}.${event.provide} — message completed
+${event.text}`;
+    default:
+      return `${event.nodeId}.${event.provide} — ${event.toolName}${event.summary ? `
+${event.summary}` : ""}`;
   }
+}
 
-  pi.on("before_agent_start", async (event) => {
-    if (!listVisibleToolNames(pi).has(toolName)) {
-      return;
-    }
-
-    if (event.systemPrompt.includes(PROTOCOL_PROMPT_AWARENESS_MARKER)) {
-      return;
-    }
-
-    return {
-      systemPrompt: `${event.systemPrompt}\n\n${renderProtocolPromptAwareness(toolName)}`,
-    };
+export function emitProtocolSubagentStarted(
+  projection: Pick<ProtocolSessionPi, "appendEntry" | "sendMessage">,
+  event: ProtocolSubagentStartedEvent,
+): void {
+  projection.appendEntry?.("protocol", event);
+  projection.sendMessage?.({
+    customType: PROTOCOL_SUBAGENT_STATUS_MESSAGE_TYPE,
+    content: formatProtocolSubagentStarted(event),
+    display: true,
+    details: event,
   });
-
-  registeredToolNames?.add(toolName);
-  return { toolName, installed: true };
 }
 
-function renderProtocolHandoffMessage(
-  message: { customType: string; content: string | unknown[]; details?: unknown },
-  options: { expanded: boolean },
-  theme: any,
-): Text {
-  const details = message.details as ProtocolHandoffMessageDetails | undefined;
-  const label = details?.label || (typeof message.content === "string" ? message.content : PROTOCOL_HANDOFF_MESSAGE_TYPE);
-  const status = details?.status ?? "done";
-  const statusColor = status === "failed" ? "error" : status === "running" ? "warning" : "success";
-  let text = theme.fg(statusColor, label);
-  text += theme.fg("dim", ` — ${status}`);
+export function emitProtocolSubagentStatus(
+  projection: Pick<ProtocolSessionPi, "appendEntry" | "sendMessage">,
+  event: ProtocolSubagentStatusEvent,
+): void {
+  projection.appendEntry?.("protocol", event);
+  projection.sendMessage?.({
+    customType: PROTOCOL_SUBAGENT_STATUS_MESSAGE_TYPE,
+    content: formatProtocolSubagentStatus(event),
+    display: true,
+    details: event,
+  });
+}
 
-  if (options.expanded && details) {
-    const lines: string[] = [
-      `trace: ${details.traceId}`,
-      `span: ${details.spanId}`,
-      `handoff: ${details.handoffId}`,
-      `node: ${details.nodeId}`,
-      `provide: ${details.provide}`,
-      `opaque: ${details.opaque ? "true" : "false"}`,
-    ];
+export function emitProtocolSubagentStream(
+  projection: Pick<ProtocolSessionPi, "appendEntry" | "sendMessage">,
+  event: ProtocolSubagentStreamEvent,
+): void {
+  projection.appendEntry?.("protocol", event);
+  projection.sendMessage?.({
+    customType: PROTOCOL_SUBAGENT_STREAM_MESSAGE_TYPE,
+    content: formatProtocolSubagentStream(event),
+    display: true,
+    details: event,
+  });
+}
 
-    if (details.brief) lines.push(`brief: ${details.brief}`);
-    if (details.startedAt) lines.push(`startedAt: ${new Date(details.startedAt).toISOString()}`);
-    if (details.endedAt) lines.push(`endedAt: ${new Date(details.endedAt).toISOString()}`);
-    if (typeof details.error === "object" && details.error) {
-      lines.push(`error: ${details.error.code}: ${details.error.message}`);
-    }
-    if (details.events.length > 0) {
-      lines.push("events:");
-      for (const event of details.events.slice(0, 12)) {
-        const dataText = trimProtocolText(JSON.stringify(event.data), 120);
-        lines.push(`- ${event.eventKind}: ${dataText}`);
+export interface ProtocolSubagentBridgeOptions {
+  projection: Pick<ProtocolSessionPi, "appendEntry" | "sendMessage">;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  nodeId: string;
+  provide: string;
+  conversationToken?: string;
+  depth: number;
+  label?: string;
+  breadcrumb?: string[];
+  emitStartedOnBind?: boolean;
+  getState?: () => {
+    traceId: string;
+    parentSpanId?: string;
+    depth: number;
+    breadcrumb: string[];
+    runId?: string;
+    assistantMessagePolicy: ProtocolChildAssistantMessagePolicy;
+  };
+}
+
+export interface ProtocolSubagentSessionLike {
+  bindExtensions?: (...args: any[]) => Promise<void>;
+  getAllTools?: () => Array<{ name: string }>;
+  setActiveToolsByName?: (toolNames: string[]) => void;
+}
+
+export interface ProtocolChildSessionVisibility {
+  contextOpacity?: "opaque" | "transparent";
+  uiVisibility?: "verbose" | "compact" | "hidden";
+}
+
+export type ProtocolChildAssistantMessagePolicy = "stream" | "final-only" | "hidden";
+
+export type ProtocolChildSessionGuardrailCode =
+  | "missing_required_tools"
+  | "protocol_tool_unavailable"
+  | "verbose_streaming_unavailable";
+
+export interface ProtocolChildSessionGuardrailWarning extends ProtocolSubagentEventBase {
+  kind: "subagent_warning";
+  code: ProtocolChildSessionGuardrailCode;
+  label?: string;
+  breadcrumb?: string[];
+  message: string;
+  missingToolNames?: string[];
+  requestedToolNames?: string[];
+  availableToolNames?: string[];
+  visibility: {
+    contextOpacity: "opaque" | "transparent";
+    uiVisibility: "verbose" | "compact" | "hidden";
+  };
+}
+
+export type ProtocolChildSessionStreamInput =
+  | Pick<ProtocolSubagentMessageDeltaEvent, "kind" | "messageId" | "delta">
+  | Pick<ProtocolSubagentMessageCompletedEvent, "kind" | "messageId" | "text">
+  | Pick<ProtocolSubagentToolEvent, "kind" | "toolName" | "toolCallId" | "summary">;
+
+export interface ProtocolChildSessionRuntimeOptions {
+  projection?: Pick<ProtocolSessionPi, "appendEntry" | "sendMessage" | "getActiveTools" | "getAllTools">;
+  traceId: string;
+  spanId?: string;
+  parentSpanId?: string;
+  depth: number;
+  nodeId: string;
+  provide: string;
+  conversationToken?: string;
+  label?: string;
+  breadcrumb?: string[];
+  includeProtocolTool?: boolean;
+  extraToolNames?: string[];
+  assistantMessagePolicy?: ProtocolChildAssistantMessagePolicy;
+  visibility?: ProtocolChildSessionVisibility;
+  strict?: boolean;
+}
+
+export interface ProtocolChildSessionRuntime {
+  readonly options: Readonly<ProtocolChildSessionRuntimeOptions>;
+  readonly projection?: Pick<ProtocolSessionPi, "appendEntry" | "sendMessage" | "getActiveTools" | "getAllTools">;
+  readonly spanId: string;
+  readonly nodeId: string;
+  readonly provide: string;
+  readonly conversationToken?: string;
+  readonly label: string;
+  readonly assistantMessagePolicy: ProtocolChildAssistantMessagePolicy;
+  readonly visibility: {
+    contextOpacity: "opaque" | "transparent";
+    uiVisibility: "verbose" | "compact" | "hidden";
+  };
+  readonly includeProtocolTool: boolean;
+  readonly extraToolNames: string[];
+  readonly extensionFactories: import("@mariozechner/pi-coding-agent").ExtensionFactory[];
+  readonly strict: boolean;
+  updateInvocation(invocation: {
+    traceId?: string;
+    parentSpanId?: string;
+    depth?: number;
+    breadcrumb?: string[];
+  }): void;
+  beginRun(invocation?: {
+    traceId?: string;
+    parentSpanId?: string;
+    depth?: number;
+    breadcrumb?: string[];
+  }): string;
+  endRun(runId?: string): void;
+  emitStarted(summary?: string): void;
+  emitStatus(
+    status: ProtocolSubagentRunStatus,
+    summary?: string,
+    error?: {
+      code?: string;
+      message: string;
+    },
+  ): void;
+  emitStream(event: ProtocolChildSessionStreamInput): void;
+}
+
+export function getProtocolInheritedToolNames(
+  parent: Pick<ProtocolSessionPi, "getActiveTools" | "getAllTools"> | undefined,
+  availableToolNames: Iterable<string>,
+  options: { includeProtocolTool?: boolean; extraToolNames?: string[] } = {},
+): string[] {
+  const inherited = new Set<string>([
+    ...(parent?.getActiveTools?.() ?? parent?.getAllTools?.().map((tool) => tool.name) ?? []),
+    "read",
+    "write",
+    "edit",
+    "bash",
+    ...(options.includeProtocolTool ? ["protocol"] : []),
+    ...(options.extraToolNames ?? []),
+  ]);
+  const available = new Set(availableToolNames);
+  return [...inherited].filter((name) => available.has(name));
+}
+
+export async function applyProtocolInheritedTools(
+  session: ProtocolSubagentSessionLike,
+  parent: Pick<ProtocolSessionPi, "getActiveTools" | "getAllTools"> | undefined,
+  options: { includeProtocolTool?: boolean; extraToolNames?: string[] } = {},
+): Promise<string[]> {
+  const availableToolNames = session.getAllTools?.().map((tool) => tool.name) ?? [];
+  const toolNames = getProtocolInheritedToolNames(parent, availableToolNames, options);
+  session.setActiveToolsByName?.(toolNames);
+  return toolNames;
+}
+
+const PROTOCOL_CHILD_SESSION_REQUIRED_CORE_TOOLS = ["read", "write", "edit", "bash"] as const;
+const PROTOCOL_CHILD_SESSION_BINDING_KEY = Symbol.for("pi-protocol.child-session.binding");
+
+function normalizeProtocolChildAssistantMessagePolicy(
+  assistantMessagePolicy: ProtocolChildSessionRuntimeOptions["assistantMessagePolicy"],
+  projection: ProtocolChildSessionRuntimeOptions["projection"],
+  visibility: {
+    contextOpacity: "opaque" | "transparent";
+    uiVisibility: "verbose" | "compact" | "hidden";
+  },
+): ProtocolChildAssistantMessagePolicy {
+  if (assistantMessagePolicy === "stream" || assistantMessagePolicy === "final-only" || assistantMessagePolicy === "hidden") {
+    return assistantMessagePolicy;
+  }
+
+  if (!projection || visibility.uiVisibility === "hidden") {
+    return "hidden";
+  }
+
+  return "stream";
+}
+
+function normalizeProtocolChildSessionVisibility(
+  visibility: ProtocolChildSessionVisibility | undefined,
+  projection: ProtocolChildSessionRuntimeOptions["projection"],
+): {
+  contextOpacity: "opaque" | "transparent";
+  uiVisibility: "verbose" | "compact" | "hidden";
+} {
+  return {
+    contextOpacity: visibility?.contextOpacity === "transparent" ? "transparent" : "opaque",
+    uiVisibility: visibility?.uiVisibility ?? (projection ? "verbose" : "hidden"),
+  };
+}
+
+function normalizeProtocolChildSessionBreadcrumb(
+  projection: ProtocolChildSessionRuntimeOptions["projection"],
+  label: string,
+  breadcrumb?: string[],
+): string[] {
+  if (breadcrumb?.length) {
+    return [...breadcrumb];
+  }
+
+  if (!projection) {
+    return ["main", label];
+  }
+
+  const inherited = [...getProtocolConversationSnapshot(projection).breadcrumb];
+  if (inherited.at(-1) !== label) {
+    inherited.push(label);
+  }
+  return inherited;
+}
+
+function appendProtocolChildSessionEvent(
+  projection: Pick<ProtocolSessionPi, "appendEntry"> | undefined,
+  event: unknown,
+): void {
+  projection?.appendEntry?.("protocol", event);
+}
+
+function emitProtocolChildSessionGuardrailWarning(
+  projection: Pick<ProtocolSessionPi, "appendEntry"> | undefined,
+  warning: ProtocolChildSessionGuardrailWarning,
+): void {
+  appendProtocolChildSessionEvent(projection, warning);
+}
+
+function throwProtocolChildSessionGuardrail(warning: ProtocolChildSessionGuardrailWarning): never {
+  const error = new Error(`[${warning.code}] ${warning.message}`) as Error & {
+    code?: string;
+    details?: ProtocolChildSessionGuardrailWarning;
+  };
+  error.code = "PROTOCOL_CHILD_SESSION_GUARDRAIL";
+  error.details = warning;
+  throw error;
+}
+
+function toProtocolChildSessionGuardrailWarning(
+  runtime: ProtocolChildSessionRuntime,
+  code: ProtocolChildSessionGuardrailCode,
+  message: string,
+  details: {
+    missingToolNames?: string[];
+    requestedToolNames?: string[];
+    availableToolNames?: string[];
+  } = {},
+): ProtocolChildSessionGuardrailWarning {
+  const state = runtime as ProtocolChildSessionRuntime & {
+    _currentTraceId?: string;
+    _currentParentSpanId?: string;
+    _currentDepth?: number;
+    _currentBreadcrumb?: string[];
+    _currentRunId?: string;
+  };
+
+  return {
+    kind: "subagent_warning",
+    code,
+    traceId: state._currentTraceId ?? runtime.spanId,
+    spanId: runtime.spanId,
+    parentSpanId: state._currentParentSpanId,
+    nodeId: runtime.nodeId,
+    provide: runtime.provide,
+    conversationToken: runtime.conversationToken,
+    runId: state._currentRunId,
+    depth: state._currentDepth ?? 1,
+    timestamp: Date.now(),
+    label: runtime.label,
+    breadcrumb: [...(state._currentBreadcrumb ?? ["main", runtime.label])],
+    message,
+    missingToolNames: details.missingToolNames,
+    requestedToolNames: details.requestedToolNames,
+    availableToolNames: details.availableToolNames,
+    visibility: runtime.visibility,
+  };
+}
+
+function handleProtocolChildSessionGuardrail(
+  runtime: ProtocolChildSessionRuntime,
+  code: ProtocolChildSessionGuardrailCode,
+  message: string,
+  details: {
+    missingToolNames?: string[];
+    requestedToolNames?: string[];
+    availableToolNames?: string[];
+  } = {},
+): void {
+  const warning = toProtocolChildSessionGuardrailWarning(runtime, code, message, details);
+  if (runtime.strict) {
+    throwProtocolChildSessionGuardrail(warning);
+  }
+  emitProtocolChildSessionGuardrailWarning(runtime.projection, warning);
+}
+
+export function createProtocolChildSessionRuntime(
+  options: ProtocolChildSessionRuntimeOptions,
+): ProtocolChildSessionRuntime {
+  const projection = options.projection;
+  const label = options.label?.trim() || options.nodeId;
+  const visibility = normalizeProtocolChildSessionVisibility(options.visibility, projection);
+  const spanId = options.spanId?.trim() || crypto.randomUUID();
+  const includeProtocolTool = options.includeProtocolTool ?? true;
+  const extraToolNames = [...new Set((options.extraToolNames ?? []).map((toolName) => toolName.trim()).filter(Boolean))];
+  const strict = options.strict ?? false;
+  const current = {
+    traceId: options.traceId,
+    parentSpanId: options.parentSpanId,
+    depth: options.depth,
+    breadcrumb: normalizeProtocolChildSessionBreadcrumb(projection, label, options.breadcrumb),
+  };
+  const assistantMessagePolicy = normalizeProtocolChildAssistantMessagePolicy(
+    options.assistantMessagePolicy,
+    projection,
+    visibility,
+  );
+
+  if (visibility.uiVisibility === "verbose" && !projection) {
+    throw new Error("createProtocolChildSessionRuntime() requires projection when uiVisibility is verbose");
+  }
+
+  const runtime: ProtocolChildSessionRuntime & {
+    _currentTraceId: string;
+    _currentParentSpanId?: string;
+    _currentDepth: number;
+    _currentBreadcrumb: string[];
+    _currentRunId?: string;
+    _lastStatusFingerprint?: string;
+    _startedEmitted: boolean;
+    _extensionsBound: boolean;
+  } = {
+    options: Object.freeze({
+      ...options,
+      label,
+      spanId,
+      includeProtocolTool,
+      extraToolNames: [...extraToolNames],
+      assistantMessagePolicy,
+      visibility,
+      strict,
+      breadcrumb: [...current.breadcrumb],
+    }),
+    projection,
+    spanId,
+    nodeId: options.nodeId,
+    provide: options.provide,
+    conversationToken: options.conversationToken,
+    label,
+    assistantMessagePolicy,
+    visibility,
+    includeProtocolTool,
+    extraToolNames,
+    extensionFactories: [],
+    strict,
+    _currentTraceId: current.traceId,
+    _currentParentSpanId: current.parentSpanId,
+    _currentDepth: current.depth,
+    _currentBreadcrumb: [...current.breadcrumb],
+    _currentRunId: undefined,
+    _lastStatusFingerprint: undefined,
+    _startedEmitted: false,
+    _extensionsBound: false,
+    updateInvocation(invocation) {
+      if (typeof invocation.traceId === "string" && invocation.traceId.trim()) {
+        this._currentTraceId = invocation.traceId;
       }
-    }
+      if (typeof invocation.parentSpanId === "string" && invocation.parentSpanId.trim()) {
+        this._currentParentSpanId = invocation.parentSpanId;
+      }
+      if (invocation.parentSpanId === undefined) {
+        this._currentParentSpanId = undefined;
+      }
+      if (typeof invocation.depth === "number" && Number.isFinite(invocation.depth)) {
+        this._currentDepth = invocation.depth;
+      }
+      if (invocation.breadcrumb?.length) {
+        this._currentBreadcrumb = [...invocation.breadcrumb];
+      }
+    },
+    beginRun(invocation = {}) {
+      this.updateInvocation(invocation);
+      this._currentRunId = crypto.randomUUID();
+      this._lastStatusFingerprint = undefined;
+      return this._currentRunId;
+    },
+    endRun(runId) {
+      if (runId && this._currentRunId !== runId) {
+        return;
+      }
+      this._currentRunId = undefined;
+      this._lastStatusFingerprint = undefined;
+    },
+    emitStarted(summary) {
+      if (this._startedEmitted) {
+        return;
+      }
+      this._startedEmitted = true;
+      const event: ProtocolSubagentStartedEvent = {
+        kind: "subagent_started",
+        traceId: this._currentTraceId,
+        spanId: this.spanId,
+        parentSpanId: this._currentParentSpanId,
+        nodeId: this.nodeId,
+        provide: this.provide,
+        conversationToken: this.conversationToken,
+        runId: this._currentRunId,
+        depth: this._currentDepth,
+        timestamp: Date.now(),
+        label: this.label,
+        breadcrumb: [...this._currentBreadcrumb],
+        summary: summary?.trim() || `${this.nodeId}.${this.provide} delegated session started`,
+      };
+      if (this.visibility.uiVisibility === "hidden") {
+        appendProtocolChildSessionEvent(this.projection, event);
+        return;
+      }
+      emitProtocolSubagentStarted(this.projection ?? {}, event);
+    },
+    emitStatus(status, summary, error) {
+      const fingerprint = JSON.stringify({ runId: this._currentRunId, status, summary, error });
+      if (this._lastStatusFingerprint === fingerprint) {
+        return;
+      }
+      this._lastStatusFingerprint = fingerprint;
+      const event: ProtocolSubagentStatusEvent = {
+        kind: "subagent_status",
+        traceId: this._currentTraceId,
+        spanId: this.spanId,
+        parentSpanId: this._currentParentSpanId,
+        nodeId: this.nodeId,
+        provide: this.provide,
+        conversationToken: this.conversationToken,
+        runId: this._currentRunId,
+        depth: this._currentDepth,
+        timestamp: Date.now(),
+        label: this.label,
+        breadcrumb: [...this._currentBreadcrumb],
+        status,
+        summary,
+        error,
+      };
+      if (this.visibility.uiVisibility === "hidden") {
+        appendProtocolChildSessionEvent(this.projection, event);
+        return;
+      }
+      emitProtocolSubagentStatus(this.projection ?? {}, event);
+    },
+    emitStream(event) {
+      const payload: ProtocolSubagentStreamEvent = {
+        ...event,
+        traceId: this._currentTraceId,
+        spanId: this.spanId,
+        parentSpanId: this._currentParentSpanId,
+        nodeId: this.nodeId,
+        provide: this.provide,
+        conversationToken: this.conversationToken,
+        runId: this._currentRunId,
+        depth: this._currentDepth,
+        timestamp: Date.now(),
+      } as ProtocolSubagentStreamEvent;
+      if (this.visibility.uiVisibility === "hidden") {
+        appendProtocolChildSessionEvent(this.projection, payload);
+        return;
+      }
+      emitProtocolSubagentStream(this.projection ?? {}, payload);
+    },
+  };
 
-    text += `\n${theme.fg("dim", lines.join("\n"))}`;
+  if (visibility.uiVisibility !== "hidden" && projection) {
+    (runtime as { extensionFactories: import("@mariozechner/pi-coding-agent").ExtensionFactory[] }).extensionFactories = [createProtocolSubagentEventBridge({
+      projection,
+      traceId: current.traceId,
+      spanId,
+      parentSpanId: current.parentSpanId,
+      nodeId: options.nodeId,
+      provide: options.provide,
+      conversationToken: options.conversationToken,
+      depth: current.depth,
+      label,
+      breadcrumb: current.breadcrumb,
+      emitStartedOnBind: false,
+      getState: () => ({
+        traceId: runtime._currentTraceId,
+        parentSpanId: runtime._currentParentSpanId,
+        depth: runtime._currentDepth,
+        breadcrumb: [...runtime._currentBreadcrumb],
+        runId: runtime._currentRunId,
+        assistantMessagePolicy: runtime.assistantMessagePolicy,
+      }),
+    })];
   }
 
-  return new Text(text, 0, 0);
+  if (visibility.uiVisibility === "verbose" && runtime.extensionFactories.length === 0) {
+    throw new Error("createProtocolChildSessionRuntime() requires streaming bridge installation for verbose child sessions");
+  }
+
+  return runtime;
 }
 
-function ensureProtocolHandoffMessageRenderer(pi: ProtocolAgentProjectionTarget): boolean {
-  if (!pi.registerMessageRenderer) {
-    return false;
+export async function applyProtocolChildSessionRuntime(
+  session: ProtocolSubagentSessionLike,
+  runtimeOrOptions: ProtocolChildSessionRuntime | ProtocolChildSessionRuntimeOptions,
+): Promise<string[]> {
+  const runtime = "extensionFactories" in runtimeOrOptions
+    ? runtimeOrOptions
+    : createProtocolChildSessionRuntime(runtimeOrOptions);
+
+  if (runtime.visibility.uiVisibility === "verbose" && runtime.extensionFactories.length > 0 && typeof session.bindExtensions !== "function") {
+    handleProtocolChildSessionGuardrail(
+      runtime,
+      "verbose_streaming_unavailable",
+      `${runtime.nodeId}.${runtime.provide} requested verbose child-session streaming, but no bindExtensions() hook is available to attach the runtime bridge.`,
+    );
   }
 
-  const target = toRegistrationTarget(pi);
-  const state = getProtocolPerTargetState(PROTOCOL_HANDOFF_RENDERER_KEY);
-  const registeredNames = getRegisteredToolNames(state, target);
-  if (registeredNames?.has(PROTOCOL_HANDOFF_MESSAGE_TYPE)) {
-    return false;
+  const sessionState = session as ProtocolSubagentSessionLike & {
+    [PROTOCOL_CHILD_SESSION_BINDING_KEY]?: boolean;
+  };
+  if (typeof session.bindExtensions === "function" && !(runtime as ProtocolChildSessionRuntime & { _extensionsBound?: boolean })._extensionsBound) {
+    if (!sessionState[PROTOCOL_CHILD_SESSION_BINDING_KEY]) {
+      await session.bindExtensions({});
+      sessionState[PROTOCOL_CHILD_SESSION_BINDING_KEY] = true;
+    }
+    (runtime as ProtocolChildSessionRuntime & { _extensionsBound?: boolean })._extensionsBound = true;
   }
 
-  pi.registerMessageRenderer(PROTOCOL_HANDOFF_MESSAGE_TYPE, renderProtocolHandoffMessage);
-  registeredNames?.add(PROTOCOL_HANDOFF_MESSAGE_TYPE);
-  return true;
+  runtime.emitStarted();
+
+  const availableToolNames = session.getAllTools?.().map((tool) => tool.name) ?? [];
+  const toolNames = await applyProtocolInheritedTools(session, runtime.projection, {
+    includeProtocolTool: runtime.includeProtocolTool,
+    extraToolNames: runtime.extraToolNames,
+  });
+  const requestedToolNames = [
+    ...PROTOCOL_CHILD_SESSION_REQUIRED_CORE_TOOLS,
+    ...(runtime.includeProtocolTool ? ["protocol"] : []),
+    ...runtime.extraToolNames,
+  ];
+  const missingRequiredToolNames = requestedToolNames.filter((toolName) => !toolNames.includes(toolName));
+
+  if (missingRequiredToolNames.length > 0) {
+    handleProtocolChildSessionGuardrail(
+      runtime,
+      runtime.includeProtocolTool && missingRequiredToolNames.includes("protocol")
+        ? "protocol_tool_unavailable"
+        : "missing_required_tools",
+      `${runtime.nodeId}.${runtime.provide} child session is missing required delegated tools: ${missingRequiredToolNames.join(", ")}.`,
+      {
+        missingToolNames: missingRequiredToolNames,
+        requestedToolNames,
+        availableToolNames,
+      },
+    );
+  }
+
+  runtime.emitStatus(
+    "running",
+    `${runtime.nodeId}.${runtime.provide} child session ready with inherited tools: ${toolNames.join(", ") || "(none)"}`,
+  );
+
+  return toolNames;
+}
+
+function readProtocolSubagentBridgeState(options: ProtocolSubagentBridgeOptions): {
+  traceId: string;
+  parentSpanId?: string;
+  depth: number;
+  breadcrumb: string[];
+  runId?: string;
+  assistantMessagePolicy: ProtocolChildAssistantMessagePolicy;
+} {
+  return options.getState?.() ?? {
+    traceId: options.traceId,
+    parentSpanId: options.parentSpanId,
+    depth: options.depth,
+    breadcrumb: [...(options.breadcrumb ?? ["main", options.label ?? options.nodeId])],
+    runId: undefined,
+    assistantMessagePolicy: "stream",
+  };
+}
+
+function getProtocolSubagentAssistantText(message: { content: unknown[] }): string {
+  return message.content
+    .filter((block): block is { type: "text"; text: string } => !!block && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+}
+
+function coalesceProtocolSubagentDelta(
+  buffer: string,
+  flush: boolean,
+): { emit?: string; rest: string } {
+  if (!buffer) {
+    return { rest: "" };
+  }
+
+  const shouldEmit =
+    flush
+    || buffer.includes("\n")
+    || /[.!?](?:\s|$)/.test(buffer)
+    || buffer.length >= 48;
+
+  if (!shouldEmit) {
+    return { rest: buffer };
+  }
+
+  return {
+    emit: buffer.trim().length > 0 ? buffer : undefined,
+    rest: "",
+  };
+}
+
+export function createProtocolSubagentEventBridge(
+  options: ProtocolSubagentBridgeOptions,
+): import("@mariozechner/pi-coding-agent").ExtensionFactory {
+  return (pi) => {
+    let activeAssistantMessageId: string | undefined;
+    let activeAssistantRunId: string | undefined;
+    let lastAssistantText = "";
+    let pendingAssistantDelta = "";
+    let hasStreamedAssistantText = false;
+    const toolRunIds = new Map<string, string>();
+
+    const resetAssistantState = () => {
+      activeAssistantMessageId = undefined;
+      activeAssistantRunId = undefined;
+      lastAssistantText = "";
+      pendingAssistantDelta = "";
+      hasStreamedAssistantText = false;
+    };
+
+    const isCurrentRun = (runId: string | undefined): runId is string => {
+      if (!runId) {
+        return false;
+      }
+      return readProtocolSubagentBridgeState(options).runId === runId;
+    };
+
+    if (options.emitStartedOnBind !== false) {
+      const state = readProtocolSubagentBridgeState(options);
+      emitProtocolSubagentStarted(options.projection, {
+        kind: "subagent_started",
+        traceId: state.traceId,
+        spanId: options.spanId,
+        parentSpanId: state.parentSpanId,
+        nodeId: options.nodeId,
+        provide: options.provide,
+        conversationToken: options.conversationToken,
+        runId: state.runId,
+        depth: state.depth,
+        timestamp: Date.now(),
+        label: options.label,
+        breadcrumb: state.breadcrumb,
+        summary: `${options.nodeId}.${options.provide} delegated session started`,
+      });
+    }
+
+    pi.on("message_start", async (event) => {
+      if (event.message.role !== "assistant" || !Array.isArray(event.message.content)) {
+        return;
+      }
+      resetAssistantState();
+      const state = readProtocolSubagentBridgeState(options);
+      if (!state.runId) {
+        return;
+      }
+      activeAssistantRunId = state.runId;
+      activeAssistantMessageId = `${options.spanId}:${state.runId}:${event.message.timestamp ?? Date.now()}`;
+    });
+
+    pi.on("message_update", async (event) => {
+      if (event.message.role !== "assistant" || !Array.isArray(event.message.content)) {
+        return;
+      }
+      const currentText = getProtocolSubagentAssistantText(event.message);
+      const delta = currentText.startsWith(lastAssistantText) ? currentText.slice(lastAssistantText.length) : currentText;
+      lastAssistantText = currentText;
+      if (!delta || !isCurrentRun(activeAssistantRunId)) {
+        return;
+      }
+
+      const state = readProtocolSubagentBridgeState(options);
+      if (state.assistantMessagePolicy !== "stream") {
+        return;
+      }
+
+      pendingAssistantDelta += delta;
+      if (!hasStreamedAssistantText) {
+        hasStreamedAssistantText = true;
+        emitProtocolSubagentStatus(options.projection, {
+          kind: "subagent_status",
+          traceId: state.traceId,
+          spanId: options.spanId,
+          parentSpanId: state.parentSpanId,
+          nodeId: options.nodeId,
+          provide: options.provide,
+          conversationToken: options.conversationToken,
+          runId: state.runId,
+          depth: state.depth,
+          timestamp: Date.now(),
+          label: options.label,
+          breadcrumb: state.breadcrumb,
+          status: "streaming",
+          summary: `${options.nodeId}.${options.provide} is streaming delegated work`,
+        });
+      }
+
+      const { emit, rest } = coalesceProtocolSubagentDelta(pendingAssistantDelta, false);
+      pendingAssistantDelta = rest;
+      if (!emit) {
+        return;
+      }
+
+      emitProtocolSubagentStream(options.projection, {
+        kind: "subagent_message_delta",
+        traceId: state.traceId,
+        spanId: options.spanId,
+        parentSpanId: state.parentSpanId,
+        nodeId: options.nodeId,
+        provide: options.provide,
+        conversationToken: options.conversationToken,
+        runId: state.runId,
+        depth: state.depth,
+        timestamp: Date.now(),
+        messageId: activeAssistantMessageId ?? `${options.spanId}:${state.runId}:assistant`,
+        delta: emit,
+      });
+    });
+
+    pi.on("message_end", async (event) => {
+      if (event.message.role !== "assistant" || !Array.isArray(event.message.content)) {
+        return;
+      }
+      if (!isCurrentRun(activeAssistantRunId)) {
+        resetAssistantState();
+        return;
+      }
+
+      const state = readProtocolSubagentBridgeState(options);
+      const text = getProtocolSubagentAssistantText(event.message);
+      if (state.assistantMessagePolicy === "stream") {
+        const { emit } = coalesceProtocolSubagentDelta(pendingAssistantDelta, true);
+        if (emit) {
+          emitProtocolSubagentStream(options.projection, {
+            kind: "subagent_message_delta",
+            traceId: state.traceId,
+            spanId: options.spanId,
+            parentSpanId: state.parentSpanId,
+            nodeId: options.nodeId,
+            provide: options.provide,
+            conversationToken: options.conversationToken,
+            runId: state.runId,
+            depth: state.depth,
+            timestamp: Date.now(),
+            messageId: activeAssistantMessageId ?? `${options.spanId}:${state.runId}:assistant`,
+            delta: emit,
+          });
+        }
+
+        if (text) {
+          emitProtocolSubagentStream(options.projection, {
+            kind: "subagent_message_completed",
+            traceId: state.traceId,
+            spanId: options.spanId,
+            parentSpanId: state.parentSpanId,
+            nodeId: options.nodeId,
+            provide: options.provide,
+            conversationToken: options.conversationToken,
+            runId: state.runId,
+            depth: state.depth,
+            timestamp: Date.now(),
+            messageId: activeAssistantMessageId ?? `${options.spanId}:${state.runId}:assistant`,
+            text,
+          });
+        }
+      }
+
+      resetAssistantState();
+    });
+
+    pi.on("tool_execution_start", async (event) => {
+      const state = readProtocolSubagentBridgeState(options);
+      if (!state.runId) {
+        return;
+      }
+      if (event.toolCallId) {
+        toolRunIds.set(event.toolCallId, state.runId);
+      }
+      emitProtocolSubagentStatus(options.projection, {
+        kind: "subagent_status",
+        traceId: state.traceId,
+        spanId: options.spanId,
+        parentSpanId: state.parentSpanId,
+        nodeId: options.nodeId,
+        provide: options.provide,
+        conversationToken: options.conversationToken,
+        runId: state.runId,
+        depth: state.depth,
+        timestamp: Date.now(),
+        label: options.label,
+        breadcrumb: state.breadcrumb,
+        status: "running",
+        summary: `${options.nodeId}.${options.provide} is using ${event.toolName}`,
+      });
+      emitProtocolSubagentStream(options.projection, {
+        kind: "subagent_tool_started",
+        traceId: state.traceId,
+        spanId: options.spanId,
+        parentSpanId: state.parentSpanId,
+        nodeId: options.nodeId,
+        provide: options.provide,
+        conversationToken: options.conversationToken,
+        runId: state.runId,
+        depth: state.depth,
+        timestamp: Date.now(),
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+        summary: JSON.stringify(event.args),
+      });
+    });
+
+    pi.on("tool_execution_update", async (event) => {
+      const runId = event.toolCallId ? toolRunIds.get(event.toolCallId) : readProtocolSubagentBridgeState(options).runId;
+      if (!isCurrentRun(runId)) {
+        return;
+      }
+      const state = readProtocolSubagentBridgeState(options);
+      emitProtocolSubagentStream(options.projection, {
+        kind: "subagent_tool_updated",
+        traceId: state.traceId,
+        spanId: options.spanId,
+        parentSpanId: state.parentSpanId,
+        nodeId: options.nodeId,
+        provide: options.provide,
+        conversationToken: options.conversationToken,
+        runId,
+        depth: state.depth,
+        timestamp: Date.now(),
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+        summary: JSON.stringify(event.partialResult),
+      });
+    });
+
+    pi.on("tool_execution_end", async (event) => {
+      const runId = event.toolCallId ? toolRunIds.get(event.toolCallId) : readProtocolSubagentBridgeState(options).runId;
+      if (!isCurrentRun(runId)) {
+        if (event.toolCallId) {
+          toolRunIds.delete(event.toolCallId);
+        }
+        return;
+      }
+      const state = readProtocolSubagentBridgeState(options);
+      emitProtocolSubagentStream(options.projection, {
+        kind: "subagent_tool_completed",
+        traceId: state.traceId,
+        spanId: options.spanId,
+        parentSpanId: state.parentSpanId,
+        nodeId: options.nodeId,
+        provide: options.provide,
+        conversationToken: options.conversationToken,
+        runId,
+        depth: state.depth,
+        timestamp: Date.now(),
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+        summary: JSON.stringify(event.result),
+      });
+      if (event.toolCallId) {
+        toolRunIds.delete(event.toolCallId);
+      }
+    });
+  };
+}
+
+export function emitProtocolInvokeResultFromInvoke(
+  projection: Pick<ProtocolAgentProjectionTarget, "sendMessage">,
+  result: ProtocolInvokeResult,
+  fallback?: { nodeId: string; provide: string },
+): void {
+  if (!projection.sendMessage) {
+    return;
+  }
+
+  if (!result.ok) {
+    const nodeId = fallback?.nodeId ?? "unknown-node";
+    const provide = fallback?.provide ?? "unknown_provide";
+    projection.sendMessage({
+      customType: PROTOCOL_INVOKE_RESULT_MESSAGE_TYPE,
+      content: `Failed to continue ${nodeId}.${provide}: ${result.error.message}`,
+      display: true,
+      details: {
+        nodeId,
+        provide,
+        error: result.error,
+      } satisfies ProtocolInvokeResultMessageDetails,
+    });
+    return;
+  }
+
+  const output = result.output;
+  if (!isConversationalProtocolOutput(output)) {
+    return;
+  }
+
+  const continuation = extractProtocolConversationContinuation(output);
+
+  projection.sendMessage({
+    customType: PROTOCOL_INVOKE_RESULT_MESSAGE_TYPE,
+    content: formatConversationalProtocolOutput(output),
+    display: true,
+    details: {
+      nodeId: result.nodeId,
+      provide: result.provide,
+      status: output.status,
+      reply: output.reply,
+      reasons: output.reasons,
+      questions: output.questions,
+      continuationState: continuation?.state,
+      continuationOwnerLabel: continuation?.owner.label ?? continuation?.owner.nodeId,
+      continuationToken: continuation?.token,
+    } satisfies ProtocolInvokeResultMessageDetails,
+  });
 }
 
 export function ensureProtocolAgentProjection(
@@ -1365,8 +2665,6 @@ export function ensureProtocolAgentProjection(
 
   if (alreadyRegistered) {
     registeredToolNames?.add(toolName);
-    ensureProtocolPromptAwareness(pi, { toolName });
-    ensureProtocolHandoffMessageRenderer(pi);
     return { toolName, registered: false };
   }
 
@@ -1376,14 +2674,12 @@ export function ensureProtocolAgentProjection(
 
   const callerNodeId = options.callerNodeId?.trim() || "pi-chat";
   const delegate = createProtocolDelegationSurface(fabric, { callerNodeId });
-  pi.registerTool(createProtocolTool(delegate, {
+  pi.registerTool(createProtocolTool(delegate, pi, {
     toolName,
     label: options.label,
     description: options.description,
   }));
   registeredToolNames?.add(toolName);
-  ensureProtocolPromptAwareness(pi, { toolName });
-  ensureProtocolHandoffMessageRenderer(pi);
 
   return { toolName, registered: true };
 }
@@ -1507,6 +2803,20 @@ function formatProtocolProvideResult(provide: ProtocolProvideDescription): strin
     `invoke: {"action":"invoke","request":{"provide":${JSON.stringify(provide.name)},"target":{"nodeId":${JSON.stringify(provide.nodeId)}},"input":{...}}}`,
   );
 
+  const looksChatLike =
+    provide.tags?.includes("chat-first") ||
+    /natural-language|chat-first|chat-like|input\.message/i.test(provide.description);
+
+  if (looksChatLike) {
+    lines.push(
+      "fast path: this provide appears conversational; prefer one direct short invoke before opening schema files from the filesystem",
+    );
+  }
+
+  if (typeof provide.inputSchema === "string" || typeof provide.outputSchema === "string") {
+    lines.push("avoid filesystem schema lookup unless invoke fails or the required input field is still unclear after describe_provide");
+  }
+
   return lines.join("\n");
 }
 
@@ -1519,6 +2829,38 @@ function formatProtocolFindProvidesResult(results: ProtocolProvideDescription[])
   for (const provide of results) {
     lines.push(summarizeProtocolProvide(provide));
   }
+  return lines.join("\n");
+}
+
+function formatProtocolToolInvokeResult(result: Extract<ProtocolToolResult, { ok: true; action: "invoke" }>): string {
+  if (!result.result.ok) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const output = result.result.output;
+  if (!isConversationalProtocolOutput(output)) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const conversationalMetadata = output as {
+    build?: unknown;
+    reasons?: unknown;
+  };
+  if (conversationalMetadata.build !== undefined || Array.isArray(conversationalMetadata.reasons)) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  const continuation = extractProtocolConversationContinuation(output);
+  const lines = [
+    `invoke ${result.result.nodeId}.${result.result.provide}`,
+    `status: ${continuation?.state === "awaiting_user" ? "awaiting_reply" : output.status ?? "completed"}`,
+    continuation?.state ? `continuation: ${continuation.state}` : "",
+    continuation?.token ? `conversationToken: ${continuation.token}` : "",
+    continuation?.state === "awaiting_user" ? `floor: ${continuation.owner.label ?? continuation.owner.nodeId}` : "",
+    continuation?.state === "awaiting_user"
+      ? "visible reply shown separately; do not paraphrase"
+      : "user-visible conversational result emitted separately",
+  ].filter(Boolean);
   return lines.join("\n");
 }
 
@@ -1536,13 +2878,30 @@ function formatProtocolToolContent(result: ProtocolToolResult): string {
       return formatProtocolProvideResult(result.provide);
     case "find_provides":
       return formatProtocolFindProvidesResult(result.results);
+    case "invoke":
+      return formatProtocolToolInvokeResult(result);
     default:
       return JSON.stringify(result, null, 2);
   }
 }
 
+function emitProtocolInvokeResultMessage(
+  projection: Pick<ProtocolAgentProjectionTarget, "sendMessage">,
+  result: ProtocolToolResult,
+): void {
+  if (!result.ok || result.action !== "invoke") {
+    return;
+  }
+
+  emitProtocolInvokeResultFromInvoke(projection, result.result, {
+    nodeId: "unknown-node",
+    provide: "unknown_provide",
+  });
+}
+
 function createProtocolTool(
   surface: ProtocolDelegationSurface,
+  projection: Pick<ProtocolAgentProjectionTarget, "sendMessage">,
   options: {
     toolName: string;
     label?: string;
@@ -1557,18 +2916,15 @@ function createProtocolTool(
       "Inspect the Pi Protocol registry and invoke public provides through the shared protocol fabric.",
     promptSnippet: `${options.toolName}: list public provides, inspect protocol nodes/provides, and invoke them through the shared fabric`,
     promptGuidelines: [
-      "Use this tool to discover Pi Protocol nodes and invoke public provides without needing one tool per provide.",
-      "Valid actions are: registry, describe_node, describe_provide, find_provides, invoke.",
-      "Route simple questions directly; for any create, edit, delete, build, modify, integrate, migrate, validate, or reuse request, stay on the protocol path first.",
-      "Start with {\"action\":\"registry\"} when you want a concise node-level capability catalog.",
-      "Use tiered discovery: registry -> describe_node -> describe_provide -> invoke.",
-      "If the registry looks large, switch to find_provides by name or tags instead of scanning every available provide.",
-      "Canonical invoke shape: { action: 'invoke', request: { provide, target: { nodeId }, input } }",
-      "Do not prefix the provide with the nodeId; put the node in request.target.nodeId.",
-      "If discovery finds a matching public builder provide, invoke it and do not freestyle a non-certified fallback afterward.",
-      "If no installed capability fits for an extension-building request, stop and surface that failure explicitly instead of silently creating files locally.",
-      "Prefer deterministic target.nodeId when known. If multiple public providers match and no target is specified, expect ambiguity.",
-      "Treat provides as the canonical contract. Internal implementation may be deterministic or agent-backed.",
+      "Use this tool to discover and invoke public provides.",
+      "Valid top-level actions are exactly: registry, describe_node, describe_provide, find_provides, and invoke.",
+      "Use query only as the nested filter object for find_provides.",
+      "For protocol work, keep the path short: registry -> describe_node -> describe_provide -> invoke.",
+      "If the user says “ask that node”, invoke its chat-like provide instead of paraphrasing registry metadata.",
+      "Follow the provider schema exactly. For general chat, use input.message.",
+      "After a visible conversational invoke result, do not paraphrase or add filler by default.",
+      "If continuation.state is awaiting_user, stop and let that node keep the floor unless the user explicitly asks you to relay another turn.",
+      "If it ends with a question, treat the next user reply as addressed to that node unless the user redirects.",
     ],
     parameters: Type.Object({
       action: Type.Union([
@@ -1577,6 +2933,7 @@ function createProtocolTool(
         Type.Literal("describe_provide"),
         Type.Literal("find_provides"),
         Type.Literal("invoke"),
+        Type.Literal("query"),
       ]),
       nodeId: Type.Optional(Type.String()),
       provide: Type.Optional(Type.String()),
@@ -1604,6 +2961,7 @@ function createProtocolTool(
               Type.Literal("deterministic"),
               Type.Literal("best-match"),
               Type.Literal("local"),
+              Type.Literal("public"),
             ]),
           ),
           modelHint: Type.Optional(
@@ -1632,9 +2990,34 @@ function createProtocolTool(
     }),
     async execute(_toolCallId: string, input: ProtocolToolInput) {
       const request = parseProtocolToolInput(input);
+      if (request.action === "invoke") {
+        const startedNodeId = request.request.target?.nodeId ?? input.nodeId ?? "protocol-target";
+        const startedProvide = request.request.provide;
+        emitProtocolSubagentStatus(projection, {
+          kind: "subagent_status",
+          traceId: crypto.randomUUID(),
+          spanId: crypto.randomUUID(),
+          nodeId: startedNodeId,
+          provide: startedProvide,
+          depth: 1,
+          timestamp: Date.now(),
+          label: startedNodeId,
+          breadcrumb: ["main", startedNodeId],
+          status: "running",
+          summary: "delegated invoke started",
+        });
+      }
       const result = await handleProtocolToolRequest(surface, request);
+      emitProtocolInvokeResultMessage(projection, result);
+      const suppressConversationalToolBody =
+        result.ok
+        && result.action === "invoke"
+        && result.result.ok
+        && isConversationalProtocolOutput(result.result.output)
+        && !(result.result.output as { build?: unknown }).build
+        && !Array.isArray((result.result.output as { reasons?: unknown }).reasons);
       return {
-        content: [{ type: "text" as const, text: formatProtocolToolContent(result) }],
+        content: suppressConversationalToolBody ? [] : [{ type: "text" as const, text: formatProtocolToolContent(result) }],
         details: {
           action: request.action,
           result,
@@ -1646,6 +3029,11 @@ function createProtocolTool(
 
 function parseProtocolToolInput(input: ProtocolToolInput): ProtocolToolRequest {
   switch (input.action) {
+    case "query":
+      throw new Error(
+        'Invalid protocol action "query". Valid top-level actions are registry, describe_node, describe_provide, find_provides, and invoke. Use action:"find_provides" with a nested query object instead.',
+      );
+
     case "registry":
       return { action: "registry" };
 
@@ -1685,13 +3073,15 @@ function parseProtocolToolInput(input: ProtocolToolInput): ProtocolToolRequest {
 
       const providedNodeId = request.target?.nodeId?.trim() || input.nodeId?.trim();
       const normalizedProvide = normalizeRequestedProvideName(providedProvide, providedNodeId);
-      const routingMode = request.routing as RoutingMode | "local" | undefined;
+      const routingMode = request.routing as RoutingMode | "local" | "public" | undefined;
       const normalizedRouting =
         routingMode === "local"
           ? "deterministic"
-          : routingMode === "best-match" || routingMode === "deterministic"
-            ? routingMode
-            : undefined;
+          : routingMode === "public"
+            ? "best-match"
+            : routingMode === "best-match" || routingMode === "deterministic"
+              ? routingMode
+              : undefined;
 
       return {
         action: "invoke",
@@ -1709,6 +3099,11 @@ function parseProtocolToolInput(input: ProtocolToolInput): ProtocolToolRequest {
         },
       };
     }
+
+    default:
+      throw new Error(
+        `Invalid protocol action ${JSON.stringify(input.action)}. Valid top-level actions are registry, describe_node, describe_provide, find_provides, and invoke.`,
+      );
   }
 }
 
@@ -1845,17 +3240,6 @@ function createProtocolNodeLocalHandoffSurface(
         record(kind: string, data: unknown) {
           const recordedAt = Date.now();
           const detailData = effective.opaque ? { redacted: true } : data;
-          state.appendEntry("protocol", {
-            kind: "handoff_event",
-            traceId: state.traceId,
-            spanId: state.spanId,
-            handoffId,
-            nodeId: state.calleeNodeId,
-            provide: state.provide,
-            eventKind: kind,
-            recordedAt,
-            data: detailData,
-          });
           recordDetail({
             traceId: state.traceId,
             spanId: state.spanId,

@@ -6,7 +6,12 @@ import activate from "../extensions/index.ts";
 import {
   FABRIC_KEY,
   PROTOCOL_AGENT_PROJECTION_KEY,
+  PROTOCOL_CONVERSATION_RENDERER_KEY,
+  PROTOCOL_CONVERSATION_ROUTING_KEY,
+  PROTOCOL_CONVERSATION_STATE_KEY,
   PROTOCOL_PROMPT_AWARENESS_KEY,
+  PROTOCOL_SUBAGENT_STATUS_RENDERER_KEY,
+  PROTOCOL_SUBAGENT_STREAM_RENDERER_KEY,
   type ProtocolHandler,
   type ProtocolSessionPi,
   registerProtocolNode,
@@ -23,6 +28,17 @@ interface RegisteredTool {
   execute?: (toolCallId: string, input: unknown) => Promise<{ content?: Array<{ type: string; text?: string }> }>;
 }
 
+interface RegisteredCommand {
+  description: string;
+  handler: (args: string, ctx: unknown) => Promise<void> | void;
+}
+
+interface CustomMessage {
+  customType: string;
+  content: string;
+  details?: unknown;
+}
+
 type EventHandler = (payload?: unknown) => Promise<unknown> | unknown;
 
 interface TestPiRuntime extends ProtocolSessionPi {
@@ -31,23 +47,39 @@ interface TestPiRuntime extends ProtocolSessionPi {
   runBeforeAgentStart: (prompt: string, systemPrompt: string) => Promise<string>;
   registerTool: (tool: RegisteredTool) => void;
   registerMessageRenderer: (customType: string, renderer: unknown) => void;
-  registerCommand?: (name: string, command: unknown) => void;
+  registerCommand: (name: string, command: RegisteredCommand) => void;
+  sendMessage: (message: unknown, options?: unknown) => void;
   getAllTools: () => RegisteredTool[];
   getActiveTools: () => string[];
   countTool: (toolName: string) => number;
   getMessageRendererTypes: () => string[];
+  getMessageRenderer: (customType: string) => unknown;
+  getCommands: () => string[];
+  getMessages: () => CustomMessage[];
 }
 
 function resetProtocolGlobals(): void {
   delete (globalThis as Record<PropertyKey, unknown>)[FABRIC_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_AGENT_PROJECTION_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_RENDERER_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_ROUTING_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_STATE_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_PROMPT_AWARENESS_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_SUBAGENT_STATUS_RENDERER_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_SUBAGENT_STREAM_RENDERER_KEY];
+}
+
+function findLastMessage(messages: CustomMessage[], customType: string): CustomMessage | undefined {
+  return [...messages].reverse().find((message) => message.customType === customType);
 }
 
 function createPiRuntime(): TestPiRuntime {
   const listeners = new Map<string, EventHandler[]>();
   const tools: RegisteredTool[] = [];
+  const commands = new Map<string, RegisteredCommand>();
   const messageRendererTypes: string[] = [];
+  const messageRenderers = new Map<string, unknown>();
+  const messages: CustomMessage[] = [];
 
   return {
     appendEntry() {
@@ -81,8 +113,15 @@ function createPiRuntime(): TestPiRuntime {
     registerTool(tool: RegisteredTool) {
       tools.push(tool);
     },
-    registerMessageRenderer(customType: string) {
+    registerMessageRenderer(customType: string, renderer: unknown) {
       messageRendererTypes.push(customType);
+      messageRenderers.set(customType, renderer);
+    },
+    registerCommand(name: string, command: RegisteredCommand) {
+      commands.set(name, command);
+    },
+    sendMessage(message: unknown) {
+      messages.push(message as CustomMessage);
     },
     getAllTools() {
       return [...tools];
@@ -95,6 +134,15 @@ function createPiRuntime(): TestPiRuntime {
     },
     getMessageRendererTypes() {
       return [...messageRendererTypes];
+    },
+    getMessageRenderer(customType: string) {
+      return messageRenderers.get(customType);
+    },
+    getCommands() {
+      return [...commands.keys()];
+    },
+    getMessages() {
+      return [...messages];
     },
   } as TestPiRuntime;
 }
@@ -134,6 +182,99 @@ async function main(): Promise<void> {
     runtime.getMessageRendererTypes().includes("protocol-handoff"),
     "handoff should register a normal-session message renderer",
   );
+  assert.ok(
+    runtime.getMessageRendererTypes().includes("chat-pi-pi-result"),
+    "chat command results should register a visible custom message renderer",
+  );
+  assert.ok(
+    runtime.getMessageRendererTypes().includes("protocol-invoke-result"),
+    "protocol invoke results should register a visible custom message renderer",
+  );
+  assert.ok(
+    runtime.getMessageRendererTypes().includes("protocol-conversation"),
+    "conversation ownership changes should register a visible custom message renderer",
+  );
+  assert.ok(
+    runtime.getMessageRendererTypes().includes("protocol-subagent-status"),
+    "subagent status updates should register a visible custom message renderer",
+  );
+  assert.ok(
+    runtime.getMessageRendererTypes().includes("protocol-subagent-stream"),
+    "subagent live stream updates should register a visible custom message renderer",
+  );
+  assert.ok(runtime.getCommands().includes("chat-pi-pi"), "chat command projection should register");
+
+  const fakeTheme = {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+  };
+  const invokeRenderer = runtime.getMessageRenderer("protocol-invoke-result") as
+    | ((message: CustomMessage, options: { expanded: boolean }, theme: typeof fakeTheme) => { render: (width: number) => string[]; addChild?: unknown })
+    | undefined;
+  const invokeComponent = invokeRenderer?.({
+    customType: "protocol-invoke-result",
+    content: "Delegated reply body",
+    details: {
+      nodeId: "pi-pi",
+      provide: "chat_pi_pi",
+      status: "clarification_needed",
+      continuationState: "awaiting_user",
+      continuationOwnerLabel: "pi-pi",
+      continuationToken: "tok-render",
+    },
+  }, { expanded: false }, fakeTheme);
+  assert.ok(
+    invokeComponent && typeof invokeComponent.addChild === "function",
+    "host projection should override protocol invoke results with a boxed renderer",
+  );
+  const invokeRendered = invokeComponent?.render(80).join("\n") ?? "";
+  assert.ok(invokeRendered.includes("Talking to: pi-pi"));
+  assert.ok(invokeRendered.includes("Delegated reply body"));
+  assert.ok(invokeRendered.includes("Awaiting reply"));
+
+  const completedInvokeComponent = invokeRenderer?.({
+    customType: "protocol-invoke-result",
+    content: "Delegated reply body",
+    details: {
+      nodeId: "pi-pi",
+      provide: "chat_pi_pi",
+      status: "completed",
+      continuationState: "closed",
+      continuationOwnerLabel: "pi-pi",
+    },
+  }, { expanded: false }, fakeTheme);
+  const completedInvokeRendered = completedInvokeComponent?.render(80).join("\n") ?? "";
+  assert.ok(completedInvokeRendered.includes("Completed"));
+  assert.ok(!completedInvokeRendered.includes("Awaiting reply"));
+
+  const statusRenderer = runtime.getMessageRenderer("protocol-subagent-status") as
+    | ((message: CustomMessage, options: { expanded: boolean }, theme: typeof fakeTheme) => { render: (width: number) => string[]; addChild?: unknown })
+    | undefined;
+  const statusComponent = statusRenderer?.({
+    customType: "protocol-subagent-status",
+    content: "pi-pi.chat_pi_pi — waiting_user",
+    details: {
+      kind: "subagent_status",
+      traceId: "trace-render",
+      spanId: "span-render",
+      nodeId: "pi-pi",
+      provide: "chat_pi_pi",
+      depth: 1,
+      timestamp: Date.now(),
+      label: "pi-pi",
+      breadcrumb: ["main", "pi-pi"],
+      status: "waiting_user",
+      summary: "waiting for user reply",
+    },
+  }, { expanded: false }, fakeTheme);
+  assert.ok(
+    statusComponent && typeof statusComponent.addChild === "function",
+    "host projection should override delegated status messages with a boxed renderer",
+  );
+  const statusRendered = statusComponent?.render(80).join("\n") ?? "";
+  assert.ok(statusRendered.includes("Talking to: pi-pi"));
+  assert.ok(statusRendered.includes("Awaiting reply"));
 
   await runtime.emit("session_start", { reason: "regression-a-repeat" });
   assert.equal(runtime.countTool("protocol"), 1, "protocol tool should not duplicate on repeated session_start");
@@ -149,7 +290,8 @@ async function main(): Promise<void> {
 
   const nodeResult = await protocolTool?.execute?.("tool-call-2", { action: "describe_node", nodeId: "pi-pi" });
   const nodeText = nodeResult?.content?.[0]?.text ?? "";
-  assert.ok(nodeText.includes("build_certified_extension"));
+  assert.ok(nodeText.includes("chat_pi_pi"));
+  assert.ok(!nodeText.includes("build_certified_extension"));
   assert.ok(!nodeText.includes("describe_certified_template"));
   assert.ok(!nodeText.includes("validate_certified_extension"));
   assert.ok(!nodeText.includes("plan_extension_from_brief"));
@@ -157,20 +299,22 @@ async function main(): Promise<void> {
   const qualifiedProvideResult = await protocolTool?.execute?.("tool-call-2b", {
     action: "describe_provide",
     nodeId: "pi-pi",
-    provide: "pi-pi.build_certified_extension",
+    provide: "pi-pi.chat_pi_pi",
   });
   const qualifiedProvideText = qualifiedProvideResult?.content?.[0]?.text ?? "";
-  assert.ok(qualifiedProvideText.includes("provide pi-pi.build_certified_extension"));
+  assert.ok(qualifiedProvideText.includes("provide pi-pi.chat_pi_pi"));
   assert.ok(qualifiedProvideText.includes("schema note: string schema paths are relative to the providing node package"));
+  assert.ok(qualifiedProvideText.includes("fast path: this provide appears conversational"));
+  assert.ok(qualifiedProvideText.includes("avoid filesystem schema lookup unless invoke fails"));
 
   const legacyShapeRepo = await mkdtemp(path.join(os.tmpdir(), "pi-pi-regression-legacy-shape-"));
   const legacyShapeInvokeResult = await protocolTool?.execute?.("tool-call-2c", {
     action: "invoke",
     nodeId: "pi-pi",
-    provide: "pi-pi.build_certified_extension",
+    provide: "pi-pi.chat_pi_pi",
     request: {
       input: {
-        description: "Build a certified extension that summarizes markdown notes and also offers a local command.",
+        message: "Build a certified extension that summarizes markdown notes and also offers a local command.",
         repoDir: legacyShapeRepo,
         applyChanges: false,
       },
@@ -180,22 +324,150 @@ async function main(): Promise<void> {
   });
   const legacyShapeInvokeText = legacyShapeInvokeResult?.content?.[0]?.text ?? "";
   assert.ok(legacyShapeInvokeText.includes('"ok": true'));
+  assert.ok(legacyShapeInvokeText.includes('"status": "completed"'));
+  assert.ok(legacyShapeInvokeText.includes('"status": "source_validated"'));
 
-  const internalSelfInvoke = await fabric.invoke({
-    callerNodeId: "pi-pi",
-    provide: "plan_extension_from_brief",
-    target: { nodeId: "pi-pi" },
-    input: { description: "Build a URL summarizer extension" },
+  const invokeChatResult = await protocolTool?.execute?.("tool-call-2d", {
+    action: "invoke",
+    request: {
+      provide: "chat_pi_pi",
+      target: { nodeId: "pi-pi" },
+      input: {
+        message: "what can you do for me",
+      },
+    },
   });
-  assert.equal(internalSelfInvoke.ok, true, "node-local internal provides should remain invocable through the fabric");
+  const invokeChatText = invokeChatResult?.content?.[0]?.text ?? "";
+  assert.equal(invokeChatText, "");
+  const invokeMessage = findLastMessage(runtime.getMessages(), "protocol-invoke-result");
+  assert.equal(invokeMessage?.customType, "protocol-invoke-result");
+  assert.ok(
+    invokeMessage?.content.includes("I am pi-pi") || invokeMessage?.content.includes("certified Pi Protocol packages"),
+  );
+  const conversationMessage = findLastMessage(runtime.getMessages(), "protocol-conversation");
+  assert.equal(conversationMessage?.customType, "protocol-conversation");
+  const invokeMessageDetails = invokeMessage?.details as { nodeId?: string; provide?: string; continuationState?: string; continuationOwnerLabel?: string } | undefined;
+  assert.equal(invokeMessageDetails?.nodeId, "pi-pi");
+  assert.equal(invokeMessageDetails?.provide, "chat_pi_pi");
 
-  const foreignInvoke = await fabric.invoke({
-    callerNodeId: "pi-chat",
-    provide: "plan_extension_from_brief",
-    target: { nodeId: "pi-pi" },
-    input: { description: "Build a URL summarizer extension" },
+  const invokeClarificationResult = await protocolTool?.execute?.("tool-call-2d-awaiting", {
+    action: "invoke",
+    request: {
+      provide: "chat_pi_pi",
+      target: { nodeId: "pi-pi" },
+      input: {
+        message: "",
+      },
+    },
   });
-  assert.equal(foreignInvoke.ok, false, "cross-node callers should not reach internal provides");
+  const invokeClarificationText = invokeClarificationResult?.content?.[0]?.text ?? "";
+  assert.equal(invokeClarificationText, "");
+  const clarificationMessage = findLastMessage(runtime.getMessages(), "protocol-invoke-result");
+  const clarificationMessageDetails = clarificationMessage?.details as { continuationState?: string; continuationOwnerLabel?: string } | undefined;
+  assert.equal(clarificationMessageDetails?.continuationState, "awaiting_user");
+  assert.equal(clarificationMessageDetails?.continuationOwnerLabel, "pi-pi");
+
+  await assert.rejects(
+    async () => protocolTool?.execute?.("tool-call-2e-query", {
+      action: "query",
+      query: {
+        name: "chat",
+        visibility: "public",
+      },
+    }),
+    /Invalid protocol action "query".*find_provides.*nested query object/i,
+  );
+
+  const invokeWithPublicRouting = await protocolTool?.execute?.("tool-call-2e-public", {
+    action: "invoke",
+    request: {
+      provide: "chat_pi_pi",
+      target: { nodeId: "pi-pi" },
+      input: {
+        message: "what can you do for me",
+      },
+      routing: "public",
+    },
+  });
+  const invokeWithPublicRoutingText = invokeWithPublicRouting?.content?.[0]?.text ?? "";
+  assert.equal(invokeWithPublicRoutingText, "");
+
+  const malformedInvokeResult = await protocolTool?.execute?.("tool-call-2e", {
+    action: "invoke",
+    request: {
+      provide: "chat_pi_pi",
+      target: { nodeId: "pi-pi" },
+      input: {
+        text: "what can you do for me",
+      },
+    },
+  });
+  const malformedInvokeText = malformedInvokeResult?.content?.[0]?.text ?? "";
+  assert.ok(malformedInvokeText.includes('"ok": false'));
+  assert.ok(malformedInvokeText.includes('"code": "INVALID_INPUT"'));
+  assert.ok(malformedInvokeText.includes("input.message:string"));
+  assert.ok(malformedInvokeText.includes("use message, not text, prompt, query, or content"));
+
+  let resolveSlowConversation: (() => void) | undefined;
+  const slowConversationHandler: ProtocolHandler = async () => {
+    await new Promise<void>((resolve) => {
+      resolveSlowConversation = resolve;
+    });
+    return {
+      status: "completed",
+      reply: "Slow conversational invoke finished.",
+    };
+  };
+
+  registerProtocolNode(runtime, fabric, {
+    manifest: {
+      protocolVersion: "0.1.0",
+      nodeId: "slow-node",
+      purpose: "Slow conversational fixture",
+      provides: [
+        {
+          name: "chat_slow",
+          description: "Slow conversational fixture",
+          handler: "chat_slow",
+          inputSchema: {
+            type: "object",
+            required: ["message"],
+            properties: {
+              message: { type: "string" },
+            },
+          },
+          outputSchema: {
+            type: "object",
+            required: ["status", "reply"],
+            properties: {
+              status: { type: "string" },
+              reply: { type: "string" },
+            },
+          },
+          visibility: "public",
+        },
+      ],
+    },
+    handlers: { chat_slow: slowConversationHandler as ProtocolHandler },
+  });
+
+  const slowInvokePromise = protocolTool?.execute?.("tool-call-live-status", {
+    action: "invoke",
+    request: {
+      provide: "chat_slow",
+      target: { nodeId: "slow-node" },
+      input: {
+        message: "start the slow test",
+      },
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(
+    runtime.getMessages().some((message) => message.customType === "protocol-subagent-status" && message.content.includes("slow-node.chat_slow")),
+    "protocol tool conversational invoke should emit a visible delegated status message before the invoke finishes",
+  );
+  resolveSlowConversation?.();
+  await slowInvokePromise;
 
   const noopHandler: ProtocolHandler = async () => ({ ok: true });
   for (let index = 0; index < 25; index += 1) {
@@ -227,10 +499,16 @@ async function main(): Promise<void> {
 
   const prompt = await runtime.runBeforeAgentStart("Build me a capability if needed.", "BASE");
   assert.equal(prompt.split(PROMPT_AWARENESS_MARKER).length - 1, 1);
-  assert.ok(prompt.includes("If discovery finds a matching public builder provide"));
-  assert.ok(prompt.includes("Canonical invoke shape"));
-  assert.ok(prompt.includes("Do not prefix the provide with the nodeId"));
-  assert.ok(prompt.includes("do not freestyle a non-certified fallback") || prompt.includes("non-certified local fallback"));
+  assert.ok(prompt.includes("Use `protocol` only for protocol work"));
+  assert.ok(prompt.includes("Valid top-level protocol actions are exactly"));
+  assert.ok(prompt.includes("`find_provides`"));
+  assert.ok(prompt.includes("Use `query` only as the nested filter object for `find_provides`"));
+  assert.ok(prompt.includes("discover a public provide before doing local work"));
+  assert.ok(prompt.includes("registry -> describe_node -> describe_provide -> invoke"));
+  assert.ok(prompt.includes("ask that node") && prompt.includes("invoke its chat-like provide"));
+  assert.ok(prompt.includes("For general chat, use `input.message`"));
+  assert.ok(prompt.includes("visible conversational invoke result") || prompt.includes("usually stop"));
+  assert.ok(prompt.includes("next user reply") && prompt.includes("addressed to that node"));
 
   console.log("protocol projection and internal-visibility regressions passed");
   resetProtocolGlobals();
