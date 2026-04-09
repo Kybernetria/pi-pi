@@ -2,14 +2,23 @@
   "type": "object",
   "required": [],
   "properties": {
-    "description": { "type": "string" },
-    "brief": { "type": "string" },
+    "description": {
+      "type": "string",
+      "description": "Natural-language brief for a typed Pi Protocol package with public provides. This builder is not for arbitrary Pi TUI/bootstrap behavior or live extension-loading interception, but typed next-session settings-manager packages remain in scope."
+    },
+    "brief": {
+      "type": "string",
+      "description": "Alias for description with the same typed protocol-package scope."
+    },
     "repoDir": {
       "type": "string",
-      "description": "Repository or package directory that should receive the certified build. Defaults to the current working directory when omitted."
+      "description": "Repository or package directory that should receive the build. Defaults to the current working directory when omitted."
     },
     "replaceExisting": { "type": "boolean" },
-    "applyChanges": { "type": "boolean" },
+    "applyChanges": {
+      "type": "boolean",
+      "description": "When true, write files to the target path and attempt target-path runtime verification. When false, keep the build in dry-run mode and return source_validated after staged verification."
+    },
     "allowPair": { "type": "boolean" }
   }
 }

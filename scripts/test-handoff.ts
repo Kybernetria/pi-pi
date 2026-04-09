@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import {
   FABRIC_KEY,
   PROTOCOL_AGENT_PROJECTION_KEY,
+  PROTOCOL_CONVERSATION_RENDERER_KEY,
+  PROTOCOL_CONVERSATION_ROUTING_KEY,
+  PROTOCOL_CONVERSATION_STATE_KEY,
   PROTOCOL_PROMPT_AWARENESS_KEY,
+  PROTOCOL_SUBAGENT_STATUS_RENDERER_KEY,
+  PROTOCOL_SUBAGENT_STREAM_RENDERER_KEY,
   createProtocolFabric,
   registerProtocolNode,
   type ProtocolHandler,
@@ -25,7 +30,12 @@ interface CustomMessage {
 function resetProtocolGlobals(): void {
   delete (globalThis as Record<PropertyKey, unknown>)[FABRIC_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_AGENT_PROJECTION_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_RENDERER_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_ROUTING_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_CONVERSATION_STATE_KEY];
   delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_PROMPT_AWARENESS_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_SUBAGENT_STATUS_RENDERER_KEY];
+  delete (globalThis as Record<PropertyKey, unknown>)[PROTOCOL_SUBAGENT_STREAM_RENDERER_KEY];
 }
 
 function createPi(entries: Entry[], messages: CustomMessage[]): ProtocolSessionPi {
@@ -172,10 +182,10 @@ async function main(): Promise<void> {
   assert.equal(opaqueHandoffIndicator?.label, "handoff: builder-node.orchestrate_task");
   assert.equal(opaqueHandoffIndicator?.collapsed, true);
 
-  const opaqueHandoffEvent = entries
+  const opaqueHandoffDetail = entries
     .map((entry) => entry.data as { kind?: string; eventKind?: string; data?: unknown })
-    .find((entry) => entry.kind === "handoff_event" && entry.eventKind === "internal-note");
-  assert.deepEqual(opaqueHandoffEvent?.data, { redacted: true });
+    .find((entry) => entry.kind === "handoff_detail" && entry.eventKind === "internal-note");
+  assert.deepEqual(opaqueHandoffDetail?.data, { redacted: true });
 
   const visibleResult = await invokeTyped<{ result: string; budgetBound: boolean; depth: number }>(fabric, {
     callerNodeId: "pi-chat",
@@ -197,17 +207,18 @@ async function main(): Promise<void> {
   assert.equal(visibleHandoffIndicator?.label, "handoff: builder-node.orchestrate_task");
   assert.equal(visibleHandoffIndicator?.collapsed, true);
 
-  const visibleHandoffEvent = entries
-    .map((entry) => entry.data as { kind?: string; eventKind?: string; data?: unknown })
-    .reverse()
-    .find((entry) => entry.kind === "handoff_event" && entry.eventKind === "internal-note");
-  assert.deepEqual(visibleHandoffEvent?.data, { secret: "plan:beta" });
-
   const visibleHandoffDetail = entries
     .map((entry) => entry.data as { kind?: string; eventKind?: string; data?: unknown })
     .reverse()
     .find((entry) => entry.kind === "handoff_detail" && entry.eventKind === "internal-note");
   assert.deepEqual(visibleHandoffDetail?.data, { secret: "plan:beta" });
+  assert.equal(
+    entries
+      .map((entry) => entry.data as { kind?: string; eventKind?: string })
+      .some((entry) => entry.kind === "handoff_event" && entry.eventKind === "internal-note"),
+    false,
+    "handoff details should not be duplicated as separate handoff_event artifacts",
+  );
 
   const protocolHandoffMessage = messages.reverse().find((message) => message.customType === "protocol-handoff");
   assert.ok(protocolHandoffMessage, "handoff should emit a normal-session custom message");

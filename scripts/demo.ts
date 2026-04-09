@@ -9,7 +9,7 @@ import {
   type ProtocolSessionPi,
 } from "../vendor/pi-protocol-sdk.ts";
 import activate from "../extensions/index.ts";
-import type { BuildCertifiedExtensionOutput } from "../protocol/core.ts";
+import type { ChatPiPiOutput } from "../protocol/core.ts";
 
 interface Notification {
   level: string;
@@ -136,29 +136,26 @@ async function main(): Promise<void> {
   });
   printSection("activation_assertions", {
     protocolToolRegistered: runtime.getAllTools().some((tool) => tool.name === "protocol"),
+    chatCommandRegistered: runtime.commands.has("chat-pi-pi"),
   });
 
   const freshRepo = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-demo-builder-"));
-  const build = await invokeTyped<BuildCertifiedExtensionOutput>(fabric, {
+  const build = await invokeTyped<ChatPiPiOutput>(fabric, {
     callerNodeId: "demo-runner",
-    provide: "build_certified_extension",
+    provide: "chat_pi_pi",
     target: { nodeId: "pi-pi" },
     input: {
-      description: "Build me a certified extension that summarizes markdown notes in the workspace and also gives me a local command.",
+      message: "Build me a certified extension that summarizes markdown notes in the workspace and also gives me a local command.",
       repoDir: freshRepo,
       applyChanges: true,
     },
     handoff: { opaque: true },
   });
-  printSection("build_certified_extension", build);
+  printSection("chat_pi_pi", build);
 
   await runtime.runCommand(
-    "pi-pi-build-certified-extension",
-    JSON.stringify({
-      description: "Build me a certified extension that validates a repository.",
-      repoDir: await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-command-builder-")),
-      applyChanges: true,
-    }),
+    "chat-pi-pi",
+    "build me a certified extension that validates a repository",
   );
 
   printSection(

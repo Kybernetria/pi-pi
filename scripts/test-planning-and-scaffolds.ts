@@ -3,11 +3,11 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  planExtensionFromBrief,
-  planExistingRepoMigration,
-  scaffoldExtension,
-  scaffoldExtensionPair,
-  validateExtension,
+  planCertifiedNodeFromDescription,
+  planBrownfieldMigration,
+  scaffoldCertifiedNode,
+  scaffoldCollaboratingNodes,
+  validateCertifiedNode,
   type PlanCertifiedNodeFromDescriptionOutput,
   type PlanBrownfieldMigrationOutput,
   type ScaffoldCertifiedNodeOutput,
@@ -20,14 +20,23 @@ function requireOk<T>(value: T | undefined, message: string): T {
   return value;
 }
 
+async function materializeScaffoldFiles(targetDir: string, files: Record<string, string>): Promise<void> {
+  await fs.mkdir(targetDir, { recursive: true });
+  for (const [relativePath, content] of Object.entries(files)) {
+    const absolutePath = path.join(targetDir, relativePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, content, "utf8");
+  }
+}
+
 async function main(): Promise<void> {
   // A mixed search + summarize brief should stay capability-first and infer both public provides.
-  const notesWorkbenchPlan = (await planExtensionFromBrief({
+  const notesWorkbenchPlan = (await planCertifiedNodeFromDescription({
     description:
       "Build me a certified extension that searches markdown notes for TODOs, summarizes the findings, and offers a local command.",
   })) as PlanCertifiedNodeFromDescriptionOutput;
 
-  const urlSummaryPlan = (await planExtensionFromBrief({
+  const urlSummaryPlan = (await planCertifiedNodeFromDescription({
     description: "Build me a certified extension that summarizes the contents of a URL.",
   })) as PlanCertifiedNodeFromDescriptionOutput;
 
@@ -49,24 +58,53 @@ async function main(): Promise<void> {
     notesWorkbenchPlan.singleNodeScaffoldInput,
     "single-node brief should return scaffold input",
   );
-  const scaffold = (await scaffoldExtension(scaffoldInput)) as ScaffoldCertifiedNodeOutput;
-  const handlersFile = scaffold.files["protocol/handlers.ts"];
-  const searchInputSchema = scaffold.files["protocol/schemas/search_notes.input.json"];
-  const summarizeOutputSchema = scaffold.files["protocol/schemas/summarize_notes.output.json"];
-  const extractTasksOutputSchema = scaffold.files["protocol/schemas/extract_tasks.output.json"];
+  const scaffold = (await scaffoldCertifiedNode(scaffoldInput)) as ScaffoldCertifiedNodeOutput;
+  const notesWorkbenchDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-notes-workbench-"));
+  await materializeScaffoldFiles(notesWorkbenchDir, scaffold.files);
+  const notesWorkbenchValidation = (await validateCertifiedNode({ packageDir: notesWorkbenchDir })) as ValidateCertifiedNodeOutput;
 
-  assert.ok(handlersFile.includes("interface SearchNotesInput"));
-  assert.ok(handlersFile.includes("query: string;"));
-  assert.ok(handlersFile.includes("matches: SearchNotesMatch[];"));
-  assert.ok(handlersFile.includes("interface SummarizeNotesOutput"));
-  assert.ok(handlersFile.includes("summary: string;"));
-  assert.ok(handlersFile.includes("interface ExtractTasksTask"));
-  assert.ok(searchInputSchema.includes('"query"'));
-  assert.ok(summarizeOutputSchema.includes('"summary"'));
-  assert.ok(extractTasksOutputSchema.includes('"tasks"'));
+  assert.equal(notesWorkbenchValidation.pass, true);
+  assert.deepEqual(
+    notesWorkbenchValidation.normalizedSummary.provides.map((provide) => provide.name),
+    notesWorkbenchPlan.candidateProvides.map((provide) => provide.name),
+    "generated scaffold should preserve the planned public provide surface",
+  );
+
+  const loadingConfigPlan = (await planCertifiedNodeFromDescription({
+    description:
+      "Build a Pi package named pi-ck that manages next-session Pi package loading configuration. It should expose exactly two public provides: answer_loading_question and configure_package_loading. Any applied config only takes effect after manual /reload or next session startup.",
+  })) as PlanCertifiedNodeFromDescriptionOutput;
+
+  assert.equal(loadingConfigPlan.recommendedShape, "single-node");
+  assert.equal(loadingConfigPlan.suggestedPackageName, "pi-ck");
+  assert.equal(loadingConfigPlan.suggestedNodeId, "pi-ck");
+  assert.deepEqual(
+    loadingConfigPlan.candidateProvides.map((provide) => provide.name),
+    ["answer_loading_question", "configure_package_loading"],
+    "planner should preserve explicit requested public provide names for next-session package-loading managers",
+  );
+
+  const loadingConfigScaffold = (await scaffoldCertifiedNode(
+    requireOk(loadingConfigPlan.singleNodeScaffoldInput, "loading-config brief should return scaffold input"),
+  )) as ScaffoldCertifiedNodeOutput;
+  const loadingConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-loading-config-"));
+  await materializeScaffoldFiles(loadingConfigDir, loadingConfigScaffold.files);
+  const loadingConfigValidation = (await validateCertifiedNode({ packageDir: loadingConfigDir })) as ValidateCertifiedNodeOutput;
+
+  assert.equal(loadingConfigValidation.pass, true);
+  assert.deepEqual(
+    loadingConfigScaffold.generatedProvides.map((provide) => provide.name),
+    ["answer_loading_question", "configure_package_loading"],
+    "next-session settings-manager briefs should stay in scope and preserve explicit public provide names",
+  );
+  assert.deepEqual(
+    loadingConfigValidation.normalizedSummary.provides.map((provide) => provide.name),
+    ["answer_loading_question", "configure_package_loading"],
+    "validated scaffold should expose the requested public provides",
+  );
 
   // A direct ping scaffold request should stay ping-shaped instead of drifting into validation semantics.
-  const pingScaffold = (await scaffoldExtension({
+  const pingScaffold = (await scaffoldCertifiedNode({
     packageName: "pi-ping-test",
     nodeId: "pi-ping-test",
     purpose: "A simple protocol-aligned test package with one ping provide.",
@@ -77,21 +115,25 @@ async function main(): Promise<void> {
       },
     ],
     useInlineSchemas: true,
-    sdkDependency: "@mariozechner/pi-protocol-sdk",
   })) as ScaffoldCertifiedNodeOutput;
 
-  assert.equal(pingScaffold.sdkDependency, "@mariozechner/pi-protocol-sdk@^0.1.0");
-  assert.ok(pingScaffold.files["package.json"].includes('"@mariozechner/pi-protocol-sdk": "^0.1.0"'));
+  assert.equal(pingScaffold.sdkDistribution, "vendored-shim");
+  assert.ok(!pingScaffold.files["package.json"].includes("pi-protocol-sdk"));
+  assert.ok(pingScaffold.files["vendor/pi-protocol-sdk.ts"].includes("export const FABRIC_KEY"));
   assert.ok(pingScaffold.files["pi.protocol.json"].includes('"response"'));
   assert.ok(!pingScaffold.files["pi.protocol.json"].includes('"targetPath"'));
   assert.ok(!pingScaffold.files["pi.protocol.json"].includes('"findings"'));
-  assert.ok(pingScaffold.files["protocol/handlers.ts"].includes('response: "pong"'));
-  assert.ok(!pingScaffold.files["protocol/handlers.ts"].includes("todo: validate"));
+  const pingDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-ping-"));
+  await materializeScaffoldFiles(pingDir, pingScaffold.files);
+  const pingValidation = (await validateCertifiedNode({ packageDir: pingDir })) as ValidateCertifiedNodeOutput;
+
+  assert.equal(pingValidation.pass, true);
 
   // The validator should now catch a ping provide that secretly uses validation-shaped schemas.
   const badPingDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-bad-ping-"));
   await fs.mkdir(path.join(badPingDir, "extensions"), { recursive: true });
   await fs.mkdir(path.join(badPingDir, "protocol"), { recursive: true });
+  await fs.mkdir(path.join(badPingDir, "vendor"), { recursive: true });
   await fs.writeFile(
     path.join(badPingDir, "package.json"),
     JSON.stringify(
@@ -145,7 +187,7 @@ async function main(): Promise<void> {
   await fs.writeFile(
     path.join(badPingDir, "extensions", "index.ts"),
     `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { ensureProtocolAgentProjection, ensureProtocolFabric, registerProtocolNode, type ProtocolAgentProjectionTarget } from "@kyvernitria/pi-protocol-sdk";
+import { ensureProtocolAgentProjection, ensureProtocolFabric, registerProtocolNode, type ProtocolAgentProjectionTarget } from "../vendor/pi-protocol-sdk.ts";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import * as handlers from "../protocol/handlers.ts";
 export default function activate(pi: ExtensionAPI) {
@@ -164,18 +206,19 @@ export default function activate(pi: ExtensionAPI) {
   );
   await fs.writeFile(
     path.join(badPingDir, "protocol", "handlers.ts"),
-    `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
+    `import type { ProtocolHandler } from "../vendor/pi-protocol-sdk.ts";
 export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: "ping", nodeId: ctx.calleeNodeId, pass: false, findings: [] });
 `,
     "utf8",
   );
+  await fs.writeFile(path.join(badPingDir, "vendor", "pi-protocol-sdk.ts"), pingScaffold.files["vendor/pi-protocol-sdk.ts"], "utf8");
 
-  const badPingValidation = (await validateExtension({ packageDir: badPingDir })) as ValidateCertifiedNodeOutput;
+  const badPingValidation = (await validateCertifiedNode({ packageDir: badPingDir })) as ValidateCertifiedNodeOutput;
   assert.equal(badPingValidation.pass, false);
   assert.ok(badPingValidation.violatedRules.some((rule) => rule.rule === "provide.semantic.ping"));
 
   // A research-flavored brief with explicit collaboration language should choose a pair.
-  const researchPairPlan = (await planExtensionFromBrief({
+  const researchPairPlan = (await planCertifiedNodeFromDescription({
     description:
       "Build a manager/worker certified pair that delegates research, gathers findings, and synthesizes them for the user.",
   })) as PlanCertifiedNodeFromDescriptionOutput;
@@ -185,9 +228,18 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.managerProvideName, "delegate_research");
   assert.equal(researchPairPlan.collaboratingNodesScaffoldInput?.workerProvideName, "perform_research");
 
-  const pairScaffold = (await scaffoldExtensionPair(
+  const pairScaffold = (await scaffoldCollaboratingNodes(
     requireOk(researchPairPlan.collaboratingNodesScaffoldInput, "pair brief should return collaborating scaffold input"),
   )) as ScaffoldCollaboratingNodesOutput;
+  const pairManagerDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-pair-manager-"));
+  const pairWorkerDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-pi-pair-worker-"));
+  await materializeScaffoldFiles(pairManagerDir, pairScaffold.manager.files);
+  await materializeScaffoldFiles(pairWorkerDir, pairScaffold.worker.files);
+  const pairManagerValidation = (await validateCertifiedNode({ packageDir: pairManagerDir })) as ValidateCertifiedNodeOutput;
+  const pairWorkerValidation = (await validateCertifiedNode({ packageDir: pairWorkerDir })) as ValidateCertifiedNodeOutput;
+
+  assert.equal(pairManagerValidation.pass, true);
+  assert.equal(pairWorkerValidation.pass, true);
   assert.ok(Object.keys(pairScaffold.worker.files).some((filePath) => filePath.startsWith("protocol/prompts/")));
   assert.ok(!pairScaffold.worker.files["pi.protocol.json"].includes("protocol/prompts/"));
 
@@ -217,7 +269,7 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "todo", provide: 
   await fs.writeFile(path.join(brownfieldDir, "protocol", "handlers.ts"), "export const summarize_notes = () => {};\n", "utf8");
   await fs.writeFile(path.join(brownfieldDir, "scripts", "migrate.ts"), "console.log('migrate');\n", "utf8");
 
-  const brownfieldPlan = (await planExistingRepoMigration({
+  const brownfieldPlan = (await planBrownfieldMigration({
     repoDir: brownfieldDir,
     includeFileHints: true,
   })) as import("../protocol/core.ts").PlanBrownfieldMigrationOutput;

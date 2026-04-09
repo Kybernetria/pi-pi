@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { validateExtension, type ValidateCertifiedNodeOutput } from "../protocol/core.ts";
+import { validateCertifiedNode, type ValidateCertifiedNodeOutput } from "../protocol/core.ts";
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -12,6 +12,8 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
 async function createBaseFixture(rootDir: string): Promise<void> {
   await fs.mkdir(path.join(rootDir, "extensions"), { recursive: true });
   await fs.mkdir(path.join(rootDir, "protocol"), { recursive: true });
+  await fs.mkdir(path.join(rootDir, "vendor"), { recursive: true });
+  await fs.copyFile(path.resolve("vendor/pi-protocol-sdk.ts"), path.join(rootDir, "vendor", "pi-protocol-sdk.ts"));
   await writeJson(path.join(rootDir, "package.json"), {
     name: "fixture-node",
     version: "0.1.0",
@@ -49,7 +51,7 @@ async function main(): Promise<void> {
   await fs.writeFile(
     path.join(projectionFixture, "extensions", "index.ts"),
     `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { ensureProtocolAgentProjection, ensureProtocolFabric, registerProtocolNode, type ProtocolAgentProjectionTarget } from "@kyvernitria/pi-protocol-sdk";
+import { ensureProtocolAgentProjection, ensureProtocolFabric, registerProtocolNode, type ProtocolAgentProjectionTarget } from "../vendor/pi-protocol-sdk.ts";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import * as handlers from "../protocol/handlers.ts";
 export default function activate(pi: ExtensionAPI) {
@@ -68,13 +70,13 @@ export default function activate(pi: ExtensionAPI) {
   );
   await fs.writeFile(
     path.join(projectionFixture, "protocol", "handlers.ts"),
-    `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-sdk";
+    `import type { ProtocolHandler } from "../vendor/pi-protocol-sdk.ts";
 export const ping: ProtocolHandler = async (ctx) => ({ status: "ok", provide: "ping", nodeId: ctx.calleeNodeId, response: "pong" });
 `,
     "utf8",
   );
 
-  const projectionValidation = (await validateExtension({
+  const projectionValidation = (await validateCertifiedNode({
     packageDir: projectionFixture,
   })) as ValidateCertifiedNodeOutput;
   assert.equal(projectionValidation.pass, false);
@@ -87,7 +89,7 @@ export const ping: ProtocolHandler = async (ctx) => ({ status: "ok", provide: "p
   await fs.writeFile(
     path.join(missingHandlerFixture, "extensions", "index.ts"),
     `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { ensureProtocolAgentProjection, ensureProtocolFabric, registerProtocolNode, type ProtocolAgentProjectionTarget } from "@kyvernitria/pi-protocol-sdk";
+import { ensureProtocolAgentProjection, ensureProtocolFabric, registerProtocolNode, type ProtocolAgentProjectionTarget } from "../vendor/pi-protocol-sdk.ts";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import * as handlers from "../protocol/handlers.ts";
 export default function activate(pi: ExtensionAPI) {
@@ -111,7 +113,7 @@ export default function activate(pi: ExtensionAPI) {
     "utf8",
   );
 
-  const missingHandlerValidation = (await validateExtension({
+  const missingHandlerValidation = (await validateCertifiedNode({
     packageDir: missingHandlerFixture,
   })) as ValidateCertifiedNodeOutput;
   assert.equal(missingHandlerValidation.pass, false);

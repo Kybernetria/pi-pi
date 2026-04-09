@@ -7,13 +7,10 @@ import {
   PROTOCOL_PROMPT_AWARENESS_MARKER,
   PROTOCOL_SUBAGENT_STATUS_MESSAGE_TYPE,
   PROTOCOL_SUBAGENT_STREAM_MESSAGE_TYPE,
-  clearProtocolConversationState,
   emitProtocolInvokeResultFromInvoke,
   ensureProtocolAgentProjection,
-  getProtocolConversationSnapshot,
   type ProtocolAgentProjectionTarget,
   type ProtocolConversationMessageDetails,
-  type ProtocolConversationResetMode,
   type ProtocolFabric,
   type ProtocolHandoffMessageDetails,
   type ProtocolInvokeResult,
@@ -21,6 +18,11 @@ import {
   type ProtocolSubagentLifecycleEvent,
   type ProtocolSubagentStreamEvent,
 } from "../vendor/pi-protocol-sdk.ts";
+import {
+  clearProtocolConversationState,
+  getProtocolConversationSnapshot,
+  type ProtocolConversationResetMode,
+} from "./protocol-conversation.ts";
 import manifest from "../pi.protocol.json" with { type: "json" };
 import type { ChatPiPiInput, ChatPiPiOutput } from "../protocol/contracts.ts";
 import type { PiRuntime } from "./runtime.ts";

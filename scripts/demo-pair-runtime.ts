@@ -10,10 +10,10 @@ import {
   type ProtocolSessionPi,
 } from "../vendor/pi-protocol-sdk.ts";
 import {
-  scaffoldExtensionPair,
+  scaffoldCollaboratingNodes,
   type ScaffoldCollaboratingNodesOutput,
   type ValidateCertifiedNodeOutput,
-  validateExtension,
+  validateCertifiedNode,
 } from "../protocol/core.ts";
 
 interface Notification {
@@ -122,84 +122,6 @@ async function writeFiles(rootDir: string, files: Record<string, string>): Promi
   }
 }
 
-async function writeSdkPackage(rootDir: string): Promise<void> {
-  const sdkDir = path.join(rootDir, "node_modules", "@kyvernitria", "pi-protocol-sdk");
-  const vendorSdkPath = path.resolve("vendor/pi-protocol-sdk.ts");
-  const piAiDir = path.join(rootDir, "node_modules", "@mariozechner", "pi-ai");
-
-  await fs.mkdir(sdkDir, { recursive: true });
-  await fs.writeFile(
-    path.join(sdkDir, "package.json"),
-    JSON.stringify(
-      {
-        name: "@kyvernitria/pi-protocol-sdk",
-        version: "0.1.0-demo",
-        type: "module",
-        exports: "./index.ts",
-      },
-      null,
-      2,
-    ) + "\n",
-    "utf8",
-  );
-  await fs.copyFile(vendorSdkPath, path.join(sdkDir, "index.ts"));
-
-  await fs.mkdir(piAiDir, { recursive: true });
-  await fs.writeFile(
-    path.join(piAiDir, "package.json"),
-    JSON.stringify(
-      {
-        name: "@mariozechner/pi-ai",
-        version: "0.0.0-demo",
-        type: "module",
-        exports: "./index.js",
-      },
-      null,
-      2,
-    ) + "\n",
-    "utf8",
-  );
-  await fs.writeFile(
-    path.join(piAiDir, "index.js"),
-    `const optional = (schema) => ({ ...schema, optional: true });
-
-export const Type = {
-  Object(properties = {}) {
-    return { type: "object", properties };
-  },
-  Union(anyOf = []) {
-    return { anyOf };
-  },
-  Literal(constValue) {
-    return { const: constValue, type: typeof constValue };
-  },
-  Optional(schema) {
-    return optional(schema);
-  },
-  Array(items) {
-    return { type: "array", items };
-  },
-  String() {
-    return { type: "string" };
-  },
-  Number() {
-    return { type: "number" };
-  },
-  Boolean() {
-    return { type: "boolean" };
-  },
-  Null() {
-    return { type: "null" };
-  },
-  Any() {
-    return {};
-  },
-};
-`,
-    "utf8",
-  );
-}
-
 async function invokeTyped<TOutput>(
   fabric: { invoke: (request: ProtocolInvokeRequest) => Promise<ProtocolInvokeResult> },
   request: ProtocolInvokeRequest,
@@ -216,7 +138,7 @@ async function loadExtension<TActivate>(extensionPath: string): Promise<TActivat
 async function main(): Promise<void> {
   delete (globalThis as Record<PropertyKey, unknown>)[FABRIC_KEY];
 
-  const pair = (await scaffoldExtensionPair({
+  const pair = (await scaffoldCollaboratingNodes({
     managerPackageName: "pi-runtime-manager",
     managerNodeId: "pi-runtime-manager",
     workerPackageName: "pi-runtime-worker",
@@ -233,12 +155,11 @@ async function main(): Promise<void> {
   const workerDir = path.join(rootDir, pair.worker.packageName);
   await writeFiles(managerDir, pair.manager.files);
   await writeFiles(workerDir, pair.worker.files);
-  await writeSdkPackage(rootDir);
 
-  const managerValidation = (await validateExtension({
+  const managerValidation = (await validateCertifiedNode({
     packageDir: managerDir,
   })) as ValidateCertifiedNodeOutput;
-  const workerValidation = (await validateExtension({
+  const workerValidation = (await validateCertifiedNode({
     packageDir: workerDir,
   })) as ValidateCertifiedNodeOutput;
   printSection("pair_validation", {

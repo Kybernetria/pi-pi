@@ -22,16 +22,18 @@ import { buildCertifiedExtension, findUnsupportedCertifiedBuilderReasons } from 
 import { protocolError } from "./core-shared.ts";
 import type { ChatPiPiInput, ChatPiPiOutput } from "./contracts.ts";
 import {
-  applyProtocolChildSessionRuntime,
-  createProtocolChildSessionRuntime,
   handleProtocolToolRequest,
-  type ProtocolChildSessionRuntime,
   type ProtocolDelegationSurface,
   type ProtocolSessionPi,
   type ProtocolToolInput,
   type ProtocolToolRequest,
   type RoutingMode,
 } from "../vendor/pi-protocol-sdk.ts";
+import {
+  applyProtocolChildSessionRuntime,
+  createProtocolChildSessionRuntime,
+  type ProtocolChildSessionRuntime,
+} from "../extensions/protocol-child-session.ts";
 
 function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
   return message.role === "assistant" && Array.isArray(message.content);

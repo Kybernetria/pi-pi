@@ -12,11 +12,14 @@
     "test:regressions": "tsx scripts/test-regressions.ts",
     "test:sdk-session": "tsx scripts/test-sdk-session.ts",
     "test:handoff": "tsx scripts/test-handoff.ts",
+    "test:conversation": "tsx scripts/test-conversation-routing.ts",
+    "test:chat-continuation": "tsx scripts/test-chat-continuation.ts",
     "test:certified-builder": "tsx scripts/test-certified-builder.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mariozechner/pi-ai": "^0.65.2"
+    "@sinclair/typebox": "^0.34.49",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*"
@@ -24,8 +27,7 @@
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "^0.65.2",
     "@types/node": "^24.5.2",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "tsx": "^4.20.6"
   },
   "pi": {
     "extensions": ["./extensions"]

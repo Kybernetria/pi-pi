@@ -1,48 +1,32 @@
-# Describe extensions naturally with pi-pi
+# Generate a certified node with `pi-pi`
 
-`pi-pi` now exposes a small authoritative public builder surface and keeps natural-language planning internal.
+Use `pi-pi.chat_pi_pi` with a plain-language message.
 
-You do not need rigid prompt syntax.
+## Include only what matters
 
-## Good brief ingredients
+Mention, when relevant:
 
-When useful, mention:
+- what capability the package should expose
+- whether operators need a local command projection
+- whether the target is the current repo or a specific `repoDir`
+- whether replacing existing repo contents is acceptable
 
-- what the extension is for
-- whether other nodes should call it
-- whether a simple local command would help operators
-- whether it should remain deterministic or use agent-backed internals
-- whether it should be one node or a collaborating pair
-- whether it should summarize URLs/web pages, in which case say that plainly
-- whether internal orchestration should use native node-local handoff with a compact visible indicator and separate structured detail records
-- whether the current workspace is the target repoDir, so the builder can be invoked directly without hunting for schema paths
+`pi-pi` decides the internal build shape itself. Pair selection is not public protocol surface.
 
-## Example brief
+## Minimal example
 
-> Build me a certified extension that summarizes markdown notes in the workspace and also gives me a local command.
+> Build me a certified extension that summarizes markdown notes and offers a local command.
 
-## Example pair brief
+## Unsupported example
 
-> Build me a manager/worker protocol pair where the manager delegates research tasks to a worker. Keep the public contract typed and keep any internal instructions non-public.
+> Create an extension that changes Pi's live TUI loading flow before startup.
 
-## Important note
+That should return a normal typed `unsupported` outcome rather than a protocol error.
 
-The public contract is still typed protocol provides.
+## Canonical references
 
-If internal orchestration is needed, keep the compact result boundary separate from expanded handoff details and keep `opaque` as the default boundary when appropriate.
+- public surface and outcomes: `README.md`
+- contributor rules and validation commands: `CONTRIBUTING.md`
+- architecture and module boundaries: `docs/ARCHITECTURE.md`
 
-For `build_certified_extension`, `repoDir` can be omitted when the current working directory is the target repository.
-
-Current public builder surface:
-
-- `build_certified_extension`
-
-Validation and template description are internal helper surfaces and are not part of normal public discovery.
-
-Reuse-or-stop rule:
-
-- if a matching certified builder provide is available, invoke it
-- if it fails, surface that failure compactly
-- do not switch to an improvised non-certified fallback after discovery
-
-Commands, tools, internal instruction files, and disclosure behavior are projections or internals, not the protocol itself.
+Use the public chat contract directly; do not invent fallback local scaffolding after discovery.

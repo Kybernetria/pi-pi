@@ -1,0 +1,173 @@
+{
+  "type": "object",
+  "required": ["status", "reply"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["clarification_needed", "completed", "unsupported"]
+    },
+    "reply": { "type": "string" },
+    "questions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "missingInformation": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "assumptionsOffered": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "canProceedWithAssumptions": { "type": "boolean" },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "continuation": {
+      "type": "object",
+      "required": ["token", "state", "owner"],
+      "properties": {
+        "token": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["awaiting_user", "awaiting_caller", "closed"]
+        },
+        "owner": {
+          "type": "object",
+          "required": ["nodeId", "provide"],
+          "properties": {
+            "nodeId": { "type": "string" },
+            "provide": { "type": "string" },
+            "label": { "type": "string" }
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "required": [
+        "status",
+        "repoDir",
+        "buildMode",
+        "applied",
+        "packages",
+        "changedFiles",
+        "validation",
+        "verification",
+        "assumptions",
+        "summary"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["source_validated", "runtime_verified"]
+        },
+        "repoDir": { "type": "string" },
+        "buildMode": { "type": "string" },
+        "applied": { "type": "boolean" },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["packageName", "nodeId", "packageDir", "changedFiles", "provides"],
+            "properties": {
+              "packageName": { "type": "string" },
+              "nodeId": { "type": "string" },
+              "packageDir": { "type": "string" },
+              "changedFiles": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "provides": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "changedFiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "validation": {
+          "type": "object",
+          "required": ["pass", "validationMode", "packageCount"],
+          "properties": {
+            "pass": { "type": "boolean" },
+            "validationMode": { "type": "string" },
+            "packageCount": { "type": "integer" }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "required": ["sdkDistribution", "sdkSourceOfTruth", "stages", "stagedRuntime"],
+          "properties": {
+            "sdkDistribution": { "type": "string" },
+            "sdkSourceOfTruth": { "type": "string" },
+            "stages": {
+              "type": "object",
+              "required": [
+                "sourceGenerated",
+                "sourceValidated",
+                "dependenciesResolved",
+                "packageInstallable",
+                "packageLoadable",
+                "nodeRegistered",
+                "publicProvideInvokable",
+                "targetFilesApplied",
+                "targetRuntimeVerified"
+              ],
+              "properties": {
+                "sourceGenerated": { "type": "boolean" },
+                "sourceValidated": { "type": "boolean" },
+                "dependenciesResolved": { "type": "boolean" },
+                "packageInstallable": { "type": "boolean" },
+                "packageLoadable": { "type": "boolean" },
+                "nodeRegistered": { "type": "boolean" },
+                "publicProvideInvokable": { "type": "boolean" },
+                "targetFilesApplied": { "type": "boolean" },
+                "targetRuntimeVerified": { "type": "boolean" }
+              }
+            },
+            "stagedRuntime": {
+              "type": "object",
+              "required": ["packageCount", "registeredNodeIds", "invokedProvides"],
+              "properties": {
+                "packageCount": { "type": "integer" },
+                "registeredNodeIds": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "invokedProvides": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            },
+            "targetRuntime": {
+              "type": "object",
+              "required": ["packageCount", "registeredNodeIds", "invokedProvides"],
+              "properties": {
+                "packageCount": { "type": "integer" },
+                "registeredNodeIds": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "invokedProvides": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,150 +1,18 @@
 {
   "protocolVersion": "0.1.0",
   "nodeId": "pi-pi",
-  "purpose": "Use this as the authoritative batteries-included builder for protocol-certified extensions and packages; it builds compact validated certified outputs while keeping planning and scaffold internals behind the node boundary.",
-  "tags": ["protocol", "generator", "validator", "typescript", "certified-builder"],
+  "purpose": "Use this as the chat-first authoritative Pi Protocol package builder; it accepts natural-language build requests, supports resumable delegated conversation via conversationToken, returns typed clarification/completed/unsupported outcomes with explicit continuation ownership, and keeps runtime verification internal to the certified build path.",
+  "tags": ["protocol", "generator", "validator", "typescript", "builder"],
   "provides": [
     {
-      "name": "describe_certified_template",
-      "description": "Describe the expected TypeScript package structure and required runtime behaviors for a protocol-certified package template.",
-      "handler": "describe_certified_template",
+      "name": "chat_pi_pi",
+      "description": "Handle a natural-language certified package-building request via input.message, resume delegated conversation with conversationToken when provided, return typed clarification/completed/unsupported outcomes plus explicit continuation ownership, and include runtime-verified build details when work completes. Use message, not text/prompt/query.",
+      "handler": "chat_pi_pi",
       "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["template", "describe", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/describe_certified_template.input.json",
-      "outputSchema": "./protocol/schemas/describe_certified_template.output.json"
-    },
-    {
-      "name": "build_certified_extension",
-      "description": "Authoritatively build a protocol-certified package or extension, validate it before success, and return a compact certified result.",
-      "handler": "build_certified_extension",
-      "version": "1.0.0",
-      "tags": ["builder", "certified", "authoritative"],
+      "tags": ["builder", "chat-first", "runtime-verified", "authoritative"],
       "effects": ["file_read", "file_write"],
-      "inputSchema": "./protocol/schemas/build_certified_extension.input.json",
-      "outputSchema": "./protocol/schemas/build_certified_extension.output.json"
-    },
-    {
-      "name": "validate_certified_extension",
-      "description": "Validate a candidate package directory against the current Pi Protocol certification rules and return a compact certification summary.",
-      "handler": "validate_certified_extension",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["validate", "compliance", "certified", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/validate_certified_extension.input.json",
-      "outputSchema": "./protocol/schemas/validate_certified_extension.output.json"
-    },
-    {
-      "name": "plan_extension_from_brief",
-      "description": "Internal planning stage that interprets a natural-language extension brief into scaffold-ready structure.",
-      "handler": "plan_extension_from_brief",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["plan", "brief", "generator", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/plan_extension_from_brief.input.json",
-      "outputSchema": "./protocol/schemas/plan_extension_from_brief.output.json"
-    },
-    {
-      "name": "plan_existing_repo_migration",
-      "description": "Internal migration planning stage for brownfield repository inspection.",
-      "handler": "plan_existing_repo_migration",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["plan", "migration", "repository", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/plan_existing_repo_migration.input.json",
-      "outputSchema": "./protocol/schemas/plan_existing_repo_migration.output.json"
-    },
-    {
-      "name": "scaffold_extension",
-      "description": "Internal scaffold stage that generates a TypeScript-first protocol-certified package template from structured input.",
-      "handler": "scaffold_extension",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["template", "scaffold", "generator", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/scaffold_extension.input.json",
-      "outputSchema": "./protocol/schemas/scaffold_extension.output.json"
-    },
-    {
-      "name": "scaffold_extension_pair",
-      "description": "Internal scaffold stage that generates a collaborating pair of protocol-certified packages.",
-      "handler": "scaffold_extension_pair",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["template", "collaboration", "generator", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/scaffold_extension_pair.input.json",
-      "outputSchema": "./protocol/schemas/scaffold_extension_pair.output.json"
-    },
-    {
-      "name": "validate_extension",
-      "description": "Internal validation stage for generated or candidate certified packages.",
-      "handler": "validate_extension",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["validate", "compliance", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/validate_extension.input.json",
-      "outputSchema": "./protocol/schemas/validate_extension.output.json"
-    },
-    {
-      "name": "plan_certified_node_from_description",
-      "description": "Internal compatibility alias for plan_extension_from_brief.",
-      "handler": "plan_certified_node_from_description",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["plan", "brief", "generator", "alias", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/plan_certified_node_from_description.input.json",
-      "outputSchema": "./protocol/schemas/plan_certified_node_from_description.output.json"
-    },
-    {
-      "name": "plan_brownfield_migration",
-      "description": "Internal compatibility alias for plan_existing_repo_migration.",
-      "handler": "plan_brownfield_migration",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["plan", "migration", "repository", "alias", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/plan_brownfield_migration.input.json",
-      "outputSchema": "./protocol/schemas/plan_brownfield_migration.output.json"
-    },
-    {
-      "name": "scaffold_certified_node",
-      "description": "Internal compatibility alias for scaffold_extension.",
-      "handler": "scaffold_certified_node",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["template", "scaffold", "generator", "alias", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/scaffold_certified_node.input.json",
-      "outputSchema": "./protocol/schemas/scaffold_certified_node.output.json"
-    },
-    {
-      "name": "scaffold_collaborating_nodes",
-      "description": "Internal compatibility alias for scaffold_extension_pair.",
-      "handler": "scaffold_collaborating_nodes",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["template", "collaboration", "generator", "alias", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/scaffold_collaborating_nodes.input.json",
-      "outputSchema": "./protocol/schemas/scaffold_collaborating_nodes.output.json"
-    },
-    {
-      "name": "validate_certified_node",
-      "description": "Internal compatibility alias for validate_extension.",
-      "handler": "validate_certified_node",
-      "version": "1.0.0",
-      "visibility": "internal",
-      "tags": ["validate", "compliance", "alias", "internal"],
-      "effects": ["file_read"],
-      "inputSchema": "./protocol/schemas/validate_certified_node.input.json",
-      "outputSchema": "./protocol/schemas/validate_certified_node.output.json"
+      "inputSchema": "./protocol/schemas/chat_pi_pi.input.json",
+      "outputSchema": "./protocol/schemas/chat_pi_pi.output.json"
     }
   ]
 }

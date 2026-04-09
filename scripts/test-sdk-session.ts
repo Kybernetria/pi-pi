@@ -64,24 +64,28 @@ async function main(): Promise<void> {
     "before_agent_start should inject the protocol-awareness helper into real AgentSession turns",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("For any request that creates, edits, deletes, builds, modifies, integrates, migrates, validates, or reuses extension code"),
+    effectiveSystemPrompt.includes("discover a public provide before doing local work"),
     "top-level chat path should be nudged toward protocol discovery for code-changing requests",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("Route simple questions, explanations, and quick lookups directly"),
-    "prompt-awareness helper should tell the agent to skip protocol for simple requests",
+    effectiveSystemPrompt.includes("Use `protocol` only for protocol work"),
+    "prompt-awareness helper should tell the agent not to force protocol for every question",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("Use tiered discovery: start with the compact node-level registry"),
-    "prompt-awareness helper should explain the node-first tiered discovery path",
+    effectiveSystemPrompt.includes("discover a public provide before doing local work"),
+    "prompt-awareness helper should require discovery before local code-changing work",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("If discovery finds a matching public builder provide"),
-    "prompt-awareness helper should require strict builder reuse when a certified builder is available",
+    effectiveSystemPrompt.includes("registry -> describe_node -> describe_provide -> invoke"),
+    "prompt-awareness helper should explain the compact protocol path",
   );
   assert.ok(
-    effectiveSystemPrompt.includes("If no installed capability fits for an extension-building request"),
-    "prompt-awareness helper should require explicit failure when extension-building work cannot stay on the protocol path",
+    effectiveSystemPrompt.includes("ask that node") && effectiveSystemPrompt.includes("invoke its chat-like provide"),
+    "prompt-awareness helper should tell the agent to actually ask the node when requested",
+  );
+  assert.ok(
+    effectiveSystemPrompt.includes("For general chat, use `input.message`"),
+    "prompt-awareness helper should tell the agent the canonical general-chat input field",
   );
 
   console.log("real AgentSession protocol discoverability passed");

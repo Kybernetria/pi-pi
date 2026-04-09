@@ -8,11 +8,15 @@
     "packages",
     "changedFiles",
     "validation",
+    "verification",
     "assumptions",
     "summary"
   ],
   "properties": {
-    "status": { "type": "string", "enum": ["certified"] },
+    "status": {
+      "type": "string",
+      "enum": ["source_validated", "runtime_verified"]
+    },
     "repoDir": { "type": "string" },
     "buildMode": { "type": "string" },
     "applied": { "type": "boolean" },
@@ -47,6 +51,69 @@
         "pass": { "type": "boolean" },
         "validationMode": { "type": "string" },
         "packageCount": { "type": "integer" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["sdkDistribution", "sdkSourceOfTruth", "stages", "stagedRuntime"],
+      "properties": {
+        "sdkDistribution": { "type": "string" },
+        "sdkSourceOfTruth": { "type": "string" },
+        "stages": {
+          "type": "object",
+          "required": [
+            "sourceGenerated",
+            "sourceValidated",
+            "dependenciesResolved",
+            "packageInstallable",
+            "packageLoadable",
+            "nodeRegistered",
+            "publicProvideInvokable",
+            "targetFilesApplied",
+            "targetRuntimeVerified"
+          ],
+          "properties": {
+            "sourceGenerated": { "type": "boolean" },
+            "sourceValidated": { "type": "boolean" },
+            "dependenciesResolved": { "type": "boolean" },
+            "packageInstallable": { "type": "boolean" },
+            "packageLoadable": { "type": "boolean" },
+            "nodeRegistered": { "type": "boolean" },
+            "publicProvideInvokable": { "type": "boolean" },
+            "targetFilesApplied": { "type": "boolean" },
+            "targetRuntimeVerified": { "type": "boolean" }
+          }
+        },
+        "stagedRuntime": {
+          "type": "object",
+          "required": ["packageCount", "registeredNodeIds", "invokedProvides"],
+          "properties": {
+            "packageCount": { "type": "integer" },
+            "registeredNodeIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "invokedProvides": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "targetRuntime": {
+          "type": "object",
+          "required": ["packageCount", "registeredNodeIds", "invokedProvides"],
+          "properties": {
+            "packageCount": { "type": "integer" },
+            "registeredNodeIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "invokedProvides": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
       }
     },
     "assumptions": {

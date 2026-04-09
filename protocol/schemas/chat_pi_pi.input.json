@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": ["message"],
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "Required natural-language user message for pi-pi. Use this field, not text, prompt, query, or content. Empty or too-vague messages return clarification_needed rather than a protocol failure."
+    },
+    "conversationToken": {
+      "type": "string",
+      "description": "Optional continuation token that resumes an existing delegated pi-pi conversation. When omitted, pi-pi starts a new conversation turn."
+    },
+    "repoDir": {
+      "type": "string",
+      "description": "Repository or package directory that should receive the build. Defaults to the current working directory when omitted."
+    },
+    "applyChanges": {
+      "type": "boolean",
+      "description": "When true, write files to the target path and attempt target-path runtime verification. When false, keep the build in dry-run mode and still return a normal completed outcome with nested build details."
+    },
+    "replaceExisting": {
+      "type": "boolean",
+      "description": "Confirms destructive replacement when the target path already contains repo content. When omitted for brownfield targets, chat_pi_pi returns clarification_needed."
+    }
+  }
+}
