@@ -1,6 +1,6 @@
 # pi-pi
 
-`pi-pi` is the chat-first authoritative builder for Pi Protocol certified packages.
+`pi-pi` is the chat-first authoritative builder for [pi-protocol] certified packages.
 
 ## Public protocol surface
 
