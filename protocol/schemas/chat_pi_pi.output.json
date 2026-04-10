@@ -1,6 +1,7 @@
 {
   "type": "object",
   "required": ["status", "reply"],
+  "additionalProperties": false,
   "properties": {
     "status": {
       "type": "string",
@@ -24,28 +25,9 @@
       "type": "array",
       "items": { "type": "string" }
     },
-    "continuation": {
-      "type": "object",
-      "required": ["token", "state", "owner"],
-      "properties": {
-        "token": { "type": "string" },
-        "state": {
-          "type": "string",
-          "enum": ["awaiting_user", "awaiting_caller", "closed"]
-        },
-        "owner": {
-          "type": "object",
-          "required": ["nodeId", "provide"],
-          "properties": {
-            "nodeId": { "type": "string" },
-            "provide": { "type": "string" },
-            "label": { "type": "string" }
-          }
-        }
-      }
-    },
     "build": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "status",
         "repoDir",
@@ -64,12 +46,16 @@
           "enum": ["source_validated", "runtime_verified"]
         },
         "repoDir": { "type": "string" },
-        "buildMode": { "type": "string" },
+        "buildMode": {
+          "type": "string",
+          "enum": ["greenfield-single-node", "greenfield-pair", "brownfield-single-node"]
+        },
         "applied": { "type": "boolean" },
         "packages": {
           "type": "array",
           "items": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["packageName", "nodeId", "packageDir", "changedFiles", "provides"],
             "properties": {
               "packageName": { "type": "string" },
@@ -92,21 +78,33 @@
         },
         "validation": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["pass", "validationMode", "packageCount"],
           "properties": {
-            "pass": { "type": "boolean" },
-            "validationMode": { "type": "string" },
+            "pass": { "enum": [true] },
+            "validationMode": {
+              "type": "string",
+              "enum": ["ast-assisted-source"]
+            },
             "packageCount": { "type": "integer" }
           }
         },
         "verification": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["sdkDistribution", "sdkSourceOfTruth", "stages", "stagedRuntime"],
           "properties": {
-            "sdkDistribution": { "type": "string" },
-            "sdkSourceOfTruth": { "type": "string" },
+            "sdkDistribution": {
+              "type": "string",
+              "enum": ["vendored-shim"]
+            },
+            "sdkSourceOfTruth": {
+              "type": "string",
+              "enum": ["vendor/pi-protocol-sdk.ts"]
+            },
             "stages": {
               "type": "object",
+              "additionalProperties": false,
               "required": [
                 "sourceGenerated",
                 "sourceValidated",
@@ -119,19 +117,20 @@
                 "targetRuntimeVerified"
               ],
               "properties": {
-                "sourceGenerated": { "type": "boolean" },
-                "sourceValidated": { "type": "boolean" },
-                "dependenciesResolved": { "type": "boolean" },
-                "packageInstallable": { "type": "boolean" },
-                "packageLoadable": { "type": "boolean" },
-                "nodeRegistered": { "type": "boolean" },
-                "publicProvideInvokable": { "type": "boolean" },
+                "sourceGenerated": { "enum": [true] },
+                "sourceValidated": { "enum": [true] },
+                "dependenciesResolved": { "enum": [true] },
+                "packageInstallable": { "enum": [true] },
+                "packageLoadable": { "enum": [true] },
+                "nodeRegistered": { "enum": [true] },
+                "publicProvideInvokable": { "enum": [true] },
                 "targetFilesApplied": { "type": "boolean" },
                 "targetRuntimeVerified": { "type": "boolean" }
               }
             },
             "stagedRuntime": {
               "type": "object",
+              "additionalProperties": false,
               "required": ["packageCount", "registeredNodeIds", "invokedProvides"],
               "properties": {
                 "packageCount": { "type": "integer" },
@@ -147,6 +146,7 @@
             },
             "targetRuntime": {
               "type": "object",
+              "additionalProperties": false,
               "required": ["packageCount", "registeredNodeIds", "invokedProvides"],
               "properties": {
                 "packageCount": { "type": "integer" },

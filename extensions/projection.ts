@@ -44,7 +44,14 @@ interface ChatPiPiResultMessageDetails {
   nodeId: string;
   provide: string;
   status: ChatPiPiOutput["status"];
+  reply?: string;
+  questions?: string[];
+  missingInformation?: string[];
+  assumptionsOffered?: string[];
+  canProceedWithAssumptions?: boolean;
+  reasons?: string[];
   continuationState?: string;
+  continuationToken?: string;
   buildStatus?: string;
   repoDir?: string;
   packages?: string[];
@@ -90,38 +97,78 @@ async function invokeSelf<TOutput>(
 function parseChatCommandInput(args: string | undefined): ChatPiPiInput {
   return {
     message: args?.trim() ?? "",
+    repoDir: process.cwd(),
+    applyChanges: true,
   };
 }
 
-function formatChatPiPiOutput(output: ChatPiPiOutput): string {
-  const lines = [output.reply];
+interface ChatPiPiPresentationDetails {
+  status?: string;
+  reply?: string;
+  questions?: string[];
+  missingInformation?: string[];
+  assumptionsOffered?: string[];
+  canProceedWithAssumptions?: boolean;
+  reasons?: string[];
+  continuationState?: string;
+  continuationToken?: string;
+  buildStatus?: string;
+  repoDir?: string;
+  packages?: string[];
+}
 
-  if (output.questions?.length) {
-    lines.push("", "Questions:", ...output.questions.map((question) => `- ${question}`));
+function formatChatPiPiPresentation(details: ChatPiPiPresentationDetails, fallbackReply = ""): string {
+  const lines = [details.reply?.trim() || fallbackReply.trim()].filter(Boolean);
+
+  if (details.questions?.length) {
+    lines.push("", "Questions:", ...details.questions.map((question) => `- ${question}`));
   }
 
-  if (output.missingInformation?.length) {
-    lines.push("", "Missing information:", ...output.missingInformation.map((item) => `- ${item}`));
+  if (details.missingInformation?.length) {
+    lines.push("", "Needed from you:", ...details.missingInformation.map((item) => `- ${item}`));
   }
 
-  if (output.assumptionsOffered?.length) {
-    lines.push("", "Assumptions I can use:", ...output.assumptionsOffered.map((item) => `- ${item}`));
+  if (details.assumptionsOffered?.length) {
+    lines.push("", "Assumptions I can use:", ...details.assumptionsOffered.map((item) => `- ${item}`));
   }
 
-  if (output.reasons?.length) {
-    lines.push("", "Reasons:", ...output.reasons.map((reason) => `- ${reason}`));
+  if (details.canProceedWithAssumptions && details.assumptionsOffered?.length) {
+    lines.push("", "Next step: reply with an answer, or tell me to proceed with one of those assumptions.");
+  } else if (details.continuationState === "awaiting_user") {
+    lines.push("", "Next step: reply here and I’ll continue from the same delegated conversation.");
   }
 
-  if (output.build) {
+  if (details.reasons?.length) {
+    lines.push("", "Reasons:", ...details.reasons.map((reason) => `- ${reason}`));
+  }
+
+  if (details.buildStatus || details.repoDir || details.packages?.length) {
     lines.push(
       "",
-      `Build status: ${output.build.status}`,
-      `Repo: ${output.build.repoDir}`,
-      `Packages: ${output.build.packages.map((pkg) => pkg.packageName).join(", ")}`,
+      ...(details.buildStatus ? [`Build status: ${details.buildStatus}`] : []),
+      ...(details.repoDir ? [`Repo: ${details.repoDir}`] : []),
+      ...(details.packages?.length ? [`Packages: ${details.packages.join(", ")}`] : []),
     );
   }
 
   return lines.join("\n");
+}
+
+function formatChatPiPiOutput(output: ChatPiPiOutput): string {
+  return formatChatPiPiPresentation({
+    status: output.status,
+    reply: output.reply,
+    questions: output.questions,
+    missingInformation: output.missingInformation,
+    assumptionsOffered: output.assumptionsOffered,
+    canProceedWithAssumptions: output.canProceedWithAssumptions,
+    reasons: output.reasons,
+    continuationState: output.continuation?.state,
+    continuationToken: output.continuation?.token,
+    buildStatus: output.build?.status,
+    repoDir: output.build?.repoDir,
+    packages: output.build?.packages.map((pkg) => pkg.packageName),
+  });
 }
 
 function applyAnsiBackground(code: number, value: string): string {
@@ -178,20 +225,42 @@ function renderTintedCard(
   return outer;
 }
 
+function getChatPiPiTone(status: string | undefined, continuationState: string | undefined): TintedSurfaceTone {
+  if (continuationState === "awaiting_user" || status === "clarification_needed") {
+    return "awaiting_user";
+  }
+  if (status === "unsupported") {
+    return "failed";
+  }
+  return "completed";
+}
+
+function getChatPiPiStatusLabel(status: string | undefined, continuationState: string | undefined): string {
+  if (continuationState === "awaiting_user") {
+    return "Awaiting reply";
+  }
+  if (continuationState === "awaiting_caller") {
+    return "Returned control";
+  }
+  if (status === "clarification_needed") {
+    return "Clarification needed";
+  }
+  if (status === "unsupported") {
+    return "Unsupported";
+  }
+  return "Completed";
+}
+
+function isChatPiPiInvokeDetails(details: ProtocolInvokeResultMessageDetails | undefined): boolean {
+  return details?.nodeId === manifest.nodeId && details?.provide === "chat_pi_pi";
+}
+
 function getInvokeResultTone(details: ProtocolInvokeResultMessageDetails | undefined): TintedSurfaceTone {
   if (details?.error) {
     return "failed";
   }
 
-  if (details?.continuationState === "awaiting_user" || details?.status === "clarification_needed") {
-    return "awaiting_user";
-  }
-
-  if (details?.status === "unsupported") {
-    return "failed";
-  }
-
-  return "completed";
+  return getChatPiPiTone(details?.status, details?.continuationState);
 }
 
 function getInvokeResultStatusLabel(details: ProtocolInvokeResultMessageDetails | undefined): string {
@@ -199,23 +268,7 @@ function getInvokeResultStatusLabel(details: ProtocolInvokeResultMessageDetails 
     return "Failed";
   }
 
-  if (details?.continuationState === "awaiting_user") {
-    return "Awaiting reply";
-  }
-
-  if (details?.continuationState === "awaiting_caller") {
-    return "Returned control";
-  }
-
-  if (details?.status === "clarification_needed") {
-    return "Clarification needed";
-  }
-
-  if (details?.status === "unsupported") {
-    return "Unsupported";
-  }
-
-  return "Completed";
+  return getChatPiPiStatusLabel(details?.status, details?.continuationState);
 }
 
 function renderDelegatedInvokeResultMessage(
@@ -224,11 +277,27 @@ function renderDelegatedInvokeResultMessage(
   theme: ThemeLike,
 ): Box {
   const details = message.details as ProtocolInvokeResultMessageDetails | undefined;
-  const body = typeof message.content === "string" ? message.content.trim() : "";
+  const fallbackBody = typeof message.content === "string" ? message.content.trim() : "";
   const ownerLabel = details?.continuationOwnerLabel ?? details?.nodeId ?? "delegated node";
   const sourceLabel = details ? `${details.nodeId}.${details.provide}` : "protocol invoke";
   const statusLabel = getInvokeResultStatusLabel(details);
   const palette = getTintedSurfacePalette(getInvokeResultTone(details));
+  const body = isChatPiPiInvokeDetails(details)
+    ? formatChatPiPiPresentation({
+      status: details?.status,
+      reply: details?.reply,
+      questions: details?.questions,
+      missingInformation: details?.missingInformation,
+      assumptionsOffered: details?.assumptionsOffered,
+      canProceedWithAssumptions: details?.canProceedWithAssumptions,
+      reasons: details?.reasons,
+      continuationState: details?.continuationState,
+      continuationToken: details?.continuationToken,
+      buildStatus: details?.buildStatus,
+      repoDir: details?.repoDir,
+      packages: details?.packages,
+    }, fallbackBody)
+    : fallbackBody;
 
   const lines = [
     theme.fg("accent", themeBold(theme, `Talking to: ${ownerLabel}`)),
@@ -244,6 +313,9 @@ function renderDelegatedInvokeResultMessage(
       `from: ${sourceLabel}`,
       details.continuationState ? `continuation: ${details.continuationState}` : "",
       details.continuationToken ? `conversation: ${details.continuationToken}` : "",
+      details.buildStatus ? `build: ${details.buildStatus}` : "",
+      details.repoDir ? `repo: ${details.repoDir}` : "",
+      details.packages?.length ? `packages: ${details.packages.join(", ")}` : "",
       details.error ? `error: ${details.error.code} — ${details.error.message}` : "",
     ].filter(Boolean);
     if (meta.length > 0) {
@@ -600,30 +672,48 @@ function ensureChatPiPiResultRenderer(pi: ProjectionRuntime): void {
     CHAT_PI_PI_RESULT_MESSAGE_TYPE,
     (message, { expanded }, theme) => {
       const details = message.details as ChatPiPiResultMessageDetails | undefined;
-      const status = details?.status ?? "completed";
-      const statusColor = status === "completed" ? "success" : status === "unsupported" ? "error" : "warning";
-      const heading = theme.fg(statusColor, `[${status}]`);
       const sourceLabel = details ? `${details.nodeId}.${details.provide}` : "pi-pi.chat_pi_pi";
-      let text = `${heading} ${theme.fg("accent", sourceLabel)}`;
-      if (typeof message.content === "string" && message.content.length > 0) {
-        text += `\n\n${message.content}`;
+      const statusLabel = getChatPiPiStatusLabel(details?.status, details?.continuationState);
+      const palette = getTintedSurfacePalette(getChatPiPiTone(details?.status, details?.continuationState));
+      const body = formatChatPiPiPresentation({
+        status: details?.status,
+        reply: details?.reply,
+        questions: details?.questions,
+        missingInformation: details?.missingInformation,
+        assumptionsOffered: details?.assumptionsOffered,
+        canProceedWithAssumptions: details?.canProceedWithAssumptions,
+        reasons: details?.reasons,
+        continuationState: details?.continuationState,
+        continuationToken: details?.continuationToken,
+        buildStatus: details?.buildStatus,
+        repoDir: details?.repoDir,
+        packages: details?.packages,
+      }, typeof message.content === "string" ? message.content : "");
+
+      const lines = [
+        theme.fg("accent", themeBold(theme, "Talking to: pi-pi")),
+        `${theme.fg(palette.badgeColor, `[${statusLabel}]`)} ${theme.fg("dim", sourceLabel)}`,
+      ];
+
+      if (body) {
+        lines.push("", body);
       }
 
       if (expanded && details) {
-        const lines: string[] = [];
-        lines.push(`from: ${sourceLabel}`);
-        if (details.continuationState) lines.push(`continuation: ${details.continuationState}`);
-        if (details.buildStatus) lines.push(`build: ${details.buildStatus}`);
-        if (details.repoDir) lines.push(`repo: ${details.repoDir}`);
-        if (details.packages?.length) lines.push(`packages: ${details.packages.join(", ")}`);
-        if (lines.length > 0) {
-          text += `\n${theme.fg("dim", lines.join("\n"))}`;
+        const meta = [
+          `from: ${sourceLabel}`,
+          details.continuationState ? `continuation: ${details.continuationState}` : "",
+          details.continuationToken ? `conversation: ${details.continuationToken}` : "",
+          details.buildStatus ? `build: ${details.buildStatus}` : "",
+          details.repoDir ? `repo: ${details.repoDir}` : "",
+          details.packages?.length ? `packages: ${details.packages.join(", ")}` : "",
+        ].filter(Boolean);
+        if (meta.length > 0) {
+          lines.push("", theme.fg("dim", meta.join("\n")));
         }
       }
 
-      const box = new Box(1, 1, (value) => theme.bg("customMessageBg", value));
-      box.addChild(new Text(text, 0, 0));
-      return box;
+      return renderTintedCard(lines.join("\n"), palette);
     },
   );
 
@@ -646,7 +736,14 @@ function presentResult(pi: ProjectionRuntime, ctx: CommandContext, result: Proto
         nodeId: result.nodeId,
         provide: result.provide,
         status: result.output.status,
+        reply: result.output.reply,
+        questions: result.output.questions,
+        missingInformation: result.output.missingInformation,
+        assumptionsOffered: result.output.assumptionsOffered,
+        canProceedWithAssumptions: result.output.canProceedWithAssumptions,
+        reasons: result.output.reasons,
         continuationState: result.output.continuation?.state,
+        continuationToken: result.output.continuation?.token,
         buildStatus: result.output.build?.status,
         repoDir: result.output.build?.repoDir,
         packages: result.output.build?.packages.map((pkg) => pkg.packageName),

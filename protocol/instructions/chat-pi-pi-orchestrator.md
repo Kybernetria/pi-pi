@@ -40,6 +40,10 @@ Examples of valid direct `completed` replies without building:
 - asking what kinds of certified packages it can build
 - asking about its public contract or status meanings
 
+A `completed` turn can therefore mean either:
+- a direct answer/help turn that is complete without building, or
+- a completed build turn that includes a nested `build` result.
+
 ## When to clarify
 
 Use `clarification_needed` when the request is in scope but you cannot safely proceed yet.
@@ -86,4 +90,7 @@ Use them when useful. Do not invent extra tools.
 - Return JSON only.
 - No markdown fences.
 - No prose before or after the JSON.
-- The JSON must match the public `chat_pi_pi` output shape except for `continuation`, which the outer handler attaches.
+- Do not emit `continuation`; the outer handler attaches it.
+- Do not add extra top-level or nested properties beyond the public schema.
+- If the turn should be closed, do not end the reply with a follow-up question or wording that sounds like you are still holding the floor.
+- The JSON must match the public `chat_pi_pi` output shape exactly except for `continuation`, which the outer handler attaches.

@@ -21,8 +21,11 @@ import { classifyCertifiedBuildRepo } from "./builder-support.ts";
 import { buildCertifiedExtension, findUnsupportedCertifiedBuilderReasons } from "./build.ts";
 import { protocolError } from "./core-shared.ts";
 import type { ChatPiPiInput, ChatPiPiOutput } from "./contracts.ts";
+import chatPiPiOutputSchema from "./schemas/chat_pi_pi.output.json" with { type: "json" };
 import {
   handleProtocolToolRequest,
+  validateSchema,
+  type JSONSchemaLite,
   type ProtocolDelegationSurface,
   type ProtocolSessionPi,
   type ProtocolToolInput,
@@ -59,17 +62,19 @@ function stripJsonCodeFences(text: string): string {
 
 function parseChatPiPiOutput(text: string): ChatPiPiOutput {
   const normalized = stripJsonCodeFences(text);
-  const parsed = JSON.parse(normalized) as ChatPiPiOutput;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalized);
+  } catch (error) {
+    throw new Error(`internal orchestrator did not return valid JSON only: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("internal orchestrator did not return an object");
   }
-  if (!["clarification_needed", "completed", "unsupported"].includes(parsed.status)) {
-    throw new Error("internal orchestrator returned an invalid status");
-  }
-  if (typeof parsed.reply !== "string") {
-    throw new Error("internal orchestrator returned no reply string");
-  }
-  return parsed;
+
+  return parsed as ChatPiPiOutput;
 }
 
 function toSessionOptions(runtimeHints: unknown): Partial<CreateAgentSessionOptions> {
@@ -98,17 +103,12 @@ function toSessionOptions(runtimeHints: unknown): Partial<CreateAgentSessionOpti
 }
 
 function validateChatPiPiOutput(output: ChatPiPiOutput): ChatPiPiOutput {
-  if (output.questions && !Array.isArray(output.questions)) {
-    throw protocolError("INVALID_OUTPUT", "chat_pi_pi questions must be an array when present");
+  const validation = validateSchema(chatPiPiOutputSchema as JSONSchemaLite, output, "chat_pi_pi output");
+  if (!validation.ok) {
+    throw protocolError("INVALID_OUTPUT", validation.message);
   }
-  if (output.missingInformation && !Array.isArray(output.missingInformation)) {
-    throw protocolError("INVALID_OUTPUT", "chat_pi_pi missingInformation must be an array when present");
-  }
-  if (output.assumptionsOffered && !Array.isArray(output.assumptionsOffered)) {
-    throw protocolError("INVALID_OUTPUT", "chat_pi_pi assumptionsOffered must be an array when present");
-  }
-  if (output.reasons && !Array.isArray(output.reasons)) {
-    throw protocolError("INVALID_OUTPUT", "chat_pi_pi reasons must be an array when present");
+  if (!output.reply.trim()) {
+    throw protocolError("INVALID_OUTPUT", "chat_pi_pi output.reply must not be empty");
   }
   return output;
 }
@@ -554,14 +554,14 @@ export async function orchestrateChatPiPi(
 
 export function isChatPiPiOrchestrationUnavailable(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /no model|api key|credential|auth|provider|model selected|return an object|invalid status|reply string|unexpected end of json input|unexpected token/i.test(message);
+  return /no model|api key|credential|auth|provider|model selected|return an object|reply string|valid json only|unexpected end of json input|unexpected token|chat_pi_pi output\./i.test(message);
 }
 
 export function buildFallbackHelpReply(): ChatPiPiOutput {
   return {
     status: "completed",
     reply:
-      "I am pi-pi, the chat-first authoritative builder for certified Pi Protocol packages. Describe the capability you want and, optionally, a repoDir. I return clarification_needed when I need more information or destructive confirmation, unsupported when the ask is outside current certified package scope, and completed when I finish the build path with nested source_validated or runtime_verified details.",
+      "I am pi-pi, the chat-first authoritative builder for certified Pi Protocol packages. Describe the capability you want and, optionally, a repoDir. I return clarification_needed when I need more information or destructive confirmation, unsupported when the ask is outside current certified package scope, and completed either when I answer directly or when I finish the build path with nested source_validated or runtime_verified details.",
   };
 }
 

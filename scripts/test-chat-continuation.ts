@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { chatPiPi } from "../protocol/chat.ts";
-import { __resetChatPiPiConversationStoreForTests } from "../protocol/chat-orchestrator.ts";
+import {
+  __resetChatPiPiConversationStoreForTests,
+  orchestrateChatPiPi,
+} from "../protocol/chat-orchestrator.ts";
 import {
   applyProtocolChildSessionRuntime,
   createProtocolChildSessionRuntime,
@@ -574,6 +577,67 @@ async function main(): Promise<void> {
     }),
     /projection when uiVisibility is verbose/i,
     "verbose child-session runtime should reject construction when no streaming projection is available",
+  );
+
+  const createMalformedSession = (assistantText: string) => async () => {
+    const session: FakeSession = {
+      messages: [],
+      async prompt() {
+        session.messages.push({
+          role: "assistant",
+          content: [{ type: "text", text: assistantText }],
+        });
+      },
+      dispose() {
+        // no-op for malformed output fixtures
+      },
+      async bindExtensions() {
+        // no-op for malformed output fixtures
+      },
+      getAllTools() {
+        return [
+          { name: "read" },
+          { name: "write" },
+          { name: "edit" },
+          { name: "bash" },
+          { name: "protocol" },
+          { name: "inspect_build_target" },
+          { name: "execute_certified_build" },
+        ];
+      },
+      setActiveToolsByName() {
+        // no-op for malformed output fixtures
+      },
+    };
+
+    return { session };
+  };
+
+  await assert.rejects(
+    async () => orchestrateChatPiPi(
+      { message: "Build a notes package." },
+      { createAgentSession: createMalformedSession('preface {"status":"completed","reply":"Done"}') },
+    ),
+    /valid JSON only/i,
+    "orchestrator should reject extra prose wrapped around the required JSON output",
+  );
+
+  await assert.rejects(
+    async () => orchestrateChatPiPi(
+      { message: "Build a notes package." },
+      { createAgentSession: createMalformedSession('{"status":"completed","reply":"Done","extra":true}') },
+    ),
+    /chat_pi_pi output\.extra is not allowed/i,
+    "orchestrator should reject extra top-level properties outside the public schema",
+  );
+
+  await assert.rejects(
+    async () => orchestrateChatPiPi(
+      { message: "Build a notes package." },
+      { createAgentSession: createMalformedSession('{"status":"clarification_needed","reply":"Need one detail.","questions":[1],"canProceedWithAssumptions":"yes"}') },
+    ),
+    /chat_pi_pi output\.questions\[0\] must be of type string|chat_pi_pi output\.canProceedWithAssumptions must be one of: true/i,
+    "orchestrator should reject malformed nested item and boolean types",
   );
 
   console.log("chat_pi_pi continuation persistence passed");

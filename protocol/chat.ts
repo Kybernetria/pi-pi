@@ -301,8 +301,10 @@ export async function chatPiPi(input: ChatPiPiInput, runtimeHints?: unknown): Pr
     try {
       const orchestrated = await orchestrateChatPiPi(normalizedInput, runtimeHints);
       output =
-        looksLikeConcreteBuildRequest(normalizedInput, message) && orchestrated.status === "completed" && !orchestrated.build
-          ? await runDeterministicChatFallback(normalizedInput, message)
+        looksLikeConcreteBuildRequest(normalizedInput, message)
+          ? (orchestrated.status === "completed" && orchestrated.build
+            ? orchestrated
+            : await runDeterministicChatFallback(normalizedInput, message))
           : orchestrated;
     } catch (error) {
       if (!isChatPiPiOrchestrationUnavailable(error)) {

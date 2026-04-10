@@ -1,12 +1,12 @@
 {
   "protocolVersion": "0.1.0",
   "nodeId": "pi-pi",
-  "purpose": "Use this as the chat-first authoritative Pi Protocol package builder; it accepts natural-language build requests, supports resumable delegated conversation via conversationToken, returns typed clarification/completed/unsupported outcomes with explicit continuation ownership, and keeps runtime verification internal to the certified build path.",
+  "purpose": "Use this as the chat-first authoritative Pi Protocol package builder; it accepts natural-language build requests, supports resumable delegated conversation via conversationToken, returns typed clarification/completed/unsupported outcomes with explicit continuation ownership, and uses completed both for direct answer/help turns and for certified build turns with runtime verification kept inside the build path.",
   "tags": ["protocol", "generator", "validator", "typescript", "builder"],
   "provides": [
     {
       "name": "chat_pi_pi",
-      "description": "Handle a natural-language certified package-building request via input.message, resume delegated conversation with conversationToken when provided, return typed clarification/completed/unsupported outcomes plus explicit continuation ownership, and include runtime-verified build details when work completes. Use message, not text/prompt/query.",
+      "description": "Handle a natural-language certified package-building request via input.message, resume delegated conversation with conversationToken when provided, return typed clarification/completed/unsupported outcomes plus explicit continuation ownership, answer directly when no build is needed, and include runtime-verified build details when build work completes. Use message, not text/prompt/query.",
       "handler": "chat_pi_pi",
       "version": "1.0.0",
       "tags": ["builder", "chat-first", "runtime-verified", "authoritative"],

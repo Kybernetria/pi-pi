@@ -240,6 +240,7 @@ async function main(): Promise<void> {
       nodeId: "pi-pi",
       provide: "chat_pi_pi",
       status: "completed",
+      reply: "Delegated reply body",
       continuationState: "closed",
       continuationOwnerLabel: "pi-pi",
     },
@@ -247,6 +248,31 @@ async function main(): Promise<void> {
   const completedInvokeRendered = completedInvokeComponent?.render(80).join("\n") ?? "";
   assert.ok(completedInvokeRendered.includes("Completed"));
   assert.ok(!completedInvokeRendered.includes("Awaiting reply"));
+
+  const chatRenderer = runtime.getMessageRenderer("chat-pi-pi-result") as
+    | ((message: CustomMessage, options: { expanded: boolean }, theme: typeof fakeTheme) => { render: (width: number) => string[]; addChild?: unknown })
+    | undefined;
+  const chatComponent = chatRenderer?.({
+    customType: "chat-pi-pi-result",
+    content: "Need one more detail.",
+    details: {
+      nodeId: "pi-pi",
+      provide: "chat_pi_pi",
+      status: "clarification_needed",
+      reply: "Need one more detail.",
+      questions: ["What repo should I use?"],
+      assumptionsOffered: ["I can use the current working directory."],
+      canProceedWithAssumptions: true,
+      continuationState: "awaiting_user",
+      continuationToken: "tok-chat-render",
+    },
+  }, { expanded: true }, fakeTheme);
+  assert.ok(chatComponent && typeof chatComponent.addChild === "function");
+  const chatRendered = chatComponent?.render(80).join("\n") ?? "";
+  assert.ok(chatRendered.includes("Awaiting reply"));
+  assert.ok(chatRendered.includes("Questions:"));
+  assert.ok(chatRendered.includes("Assumptions I can use:"));
+  assert.ok(chatRendered.includes("Next step: reply"));
 
   const statusRenderer = runtime.getMessageRenderer("protocol-subagent-status") as
     | ((message: CustomMessage, options: { expanded: boolean }, theme: typeof fakeTheme) => { render: (width: number) => string[]; addChild?: unknown })
@@ -323,9 +349,10 @@ async function main(): Promise<void> {
     },
   });
   const legacyShapeInvokeText = legacyShapeInvokeResult?.content?.[0]?.text ?? "";
-  assert.ok(legacyShapeInvokeText.includes('"ok": true'));
-  assert.ok(legacyShapeInvokeText.includes('"status": "completed"'));
-  assert.ok(legacyShapeInvokeText.includes('"status": "source_validated"'));
+  assert.ok(legacyShapeInvokeText.includes("invoke pi-pi.chat_pi_pi"));
+  assert.ok(legacyShapeInvokeText.includes("status: completed"));
+  assert.ok(legacyShapeInvokeText.includes("buildStatus: source_validated"));
+  assert.ok(legacyShapeInvokeText.includes(`repoDir: ${legacyShapeRepo}`));
 
   const invokeChatResult = await protocolTool?.execute?.("tool-call-2d", {
     action: "invoke",
@@ -338,12 +365,12 @@ async function main(): Promise<void> {
     },
   });
   const invokeChatText = invokeChatResult?.content?.[0]?.text ?? "";
-  assert.equal(invokeChatText, "");
+  assert.ok(invokeChatText.includes("invoke pi-pi.chat_pi_pi"));
+  assert.ok(invokeChatText.includes("visible reply shown separately"));
   const invokeMessage = findLastMessage(runtime.getMessages(), "protocol-invoke-result");
   assert.equal(invokeMessage?.customType, "protocol-invoke-result");
-  assert.ok(
-    invokeMessage?.content.includes("I am pi-pi") || invokeMessage?.content.includes("certified Pi Protocol packages"),
-  );
+  assert.ok(typeof invokeMessage?.content === "string" && invokeMessage.content.length > 0);
+  assert.ok(!invokeMessage?.content.includes('"ok": true'));
   const conversationMessage = findLastMessage(runtime.getMessages(), "protocol-conversation");
   assert.equal(conversationMessage?.customType, "protocol-conversation");
   const invokeMessageDetails = invokeMessage?.details as { nodeId?: string; provide?: string; continuationState?: string; continuationOwnerLabel?: string } | undefined;
@@ -361,7 +388,8 @@ async function main(): Promise<void> {
     },
   });
   const invokeClarificationText = invokeClarificationResult?.content?.[0]?.text ?? "";
-  assert.equal(invokeClarificationText, "");
+  assert.ok(invokeClarificationText.includes("status: awaiting_reply"));
+  assert.ok(invokeClarificationText.includes("conversationToken:"));
   const clarificationMessage = findLastMessage(runtime.getMessages(), "protocol-invoke-result");
   const clarificationMessageDetails = clarificationMessage?.details as { continuationState?: string; continuationOwnerLabel?: string } | undefined;
   assert.equal(clarificationMessageDetails?.continuationState, "awaiting_user");
@@ -390,7 +418,8 @@ async function main(): Promise<void> {
     },
   });
   const invokeWithPublicRoutingText = invokeWithPublicRouting?.content?.[0]?.text ?? "";
-  assert.equal(invokeWithPublicRoutingText, "");
+  assert.ok(invokeWithPublicRoutingText.includes("invoke pi-pi.chat_pi_pi"));
+  assert.ok(invokeWithPublicRoutingText.includes("visible reply shown separately"));
 
   const malformedInvokeResult = await protocolTool?.execute?.("tool-call-2e", {
     action: "invoke",

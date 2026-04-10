@@ -152,6 +152,7 @@ export interface JSONSchemaLite {
   type?: PrimitiveSchemaType | PrimitiveSchemaType[];
   required?: string[];
   properties?: Record<string, JSONSchemaLite>;
+  additionalProperties?: boolean | JSONSchemaLite;
   items?: JSONSchemaLite;
   enum?: unknown[];
   description?: string;
@@ -566,6 +567,12 @@ export interface ProtocolInvokeResultMessageDetails {
   reply?: string;
   reasons?: string[];
   questions?: string[];
+  missingInformation?: string[];
+  assumptionsOffered?: string[];
+  canProceedWithAssumptions?: boolean;
+  buildStatus?: string;
+  repoDir?: string;
+  packages?: string[];
   continuationState?: ProtocolContinuationState;
   continuationOwnerLabel?: string;
   continuationToken?: string;
@@ -1457,14 +1464,40 @@ function formatConversationalProtocolOutput(value: {
   reply: string;
   reasons?: string[];
   questions?: string[];
+  missingInformation?: string[];
+  assumptionsOffered?: string[];
+  canProceedWithAssumptions?: boolean;
+  build?: {
+    status?: string;
+    repoDir?: string;
+    packages?: Array<{ packageName?: string }>;
+  };
 }): string {
   const lines = [value.reply];
 
   if (value.questions?.length) {
     lines.push("", "Questions:", ...value.questions.map((question) => `- ${question}`));
   }
+  if (value.missingInformation?.length) {
+    lines.push("", "Needed from you:", ...value.missingInformation.map((item) => `- ${item}`));
+  }
+  if (value.assumptionsOffered?.length) {
+    lines.push("", "Assumptions I can use:", ...value.assumptionsOffered.map((item) => `- ${item}`));
+  }
+  if (value.canProceedWithAssumptions && value.assumptionsOffered?.length) {
+    lines.push("", "Next step: reply with an answer or tell me to proceed with one of those assumptions.");
+  }
   if (value.reasons?.length) {
     lines.push("", "Reasons:", ...value.reasons.map((reason) => `- ${reason}`));
+  }
+  if (value.build) {
+    const packageNames = value.build.packages?.map((pkg) => pkg.packageName).filter((name): name is string => typeof name === "string" && name.length > 0) ?? [];
+    lines.push(
+      "",
+      `Build status: ${value.build.status ?? "completed"}`,
+      ...(value.build.repoDir ? [`Repo: ${value.build.repoDir}`] : []),
+      ...(packageNames.length > 0 ? [`Packages: ${packageNames.join(", ")}`] : []),
+    );
   }
 
   return lines.join("\n");
@@ -1571,17 +1604,40 @@ export function emitProtocolInvokeResultFromInvoke(
 
   const continuation = extractProtocolConversationContinuation(output);
 
+  const conversationalOutput = output as {
+    status?: string;
+    reply: string;
+    reasons?: string[];
+    questions?: string[];
+    missingInformation?: string[];
+    assumptionsOffered?: string[];
+    canProceedWithAssumptions?: boolean;
+    build?: {
+      status?: string;
+      repoDir?: string;
+      packages?: Array<{ packageName?: string }>;
+    };
+  };
+
   projection.sendMessage({
     customType: PROTOCOL_INVOKE_RESULT_MESSAGE_TYPE,
-    content: formatConversationalProtocolOutput(output),
+    content: formatConversationalProtocolOutput(conversationalOutput),
     display: true,
     details: {
       nodeId: result.nodeId,
       provide: result.provide,
-      status: output.status,
-      reply: output.reply,
-      reasons: output.reasons,
-      questions: output.questions,
+      status: conversationalOutput.status,
+      reply: conversationalOutput.reply,
+      reasons: conversationalOutput.reasons,
+      questions: conversationalOutput.questions,
+      missingInformation: conversationalOutput.missingInformation,
+      assumptionsOffered: conversationalOutput.assumptionsOffered,
+      canProceedWithAssumptions: conversationalOutput.canProceedWithAssumptions,
+      buildStatus: conversationalOutput.build?.status,
+      repoDir: conversationalOutput.build?.repoDir,
+      packages: conversationalOutput.build?.packages
+        ?.map((pkg) => pkg.packageName)
+        .filter((name): name is string => typeof name === "string" && name.length > 0),
       continuationState: continuation?.state,
       continuationOwnerLabel: continuation?.owner.label ?? continuation?.owner.nodeId,
       continuationToken: continuation?.token,
@@ -1781,24 +1837,39 @@ function formatProtocolToolInvokeResult(result: Extract<ProtocolToolResult, { ok
     return JSON.stringify(result, null, 2);
   }
 
-  const conversationalMetadata = output as {
-    build?: unknown;
-    reasons?: unknown;
-  };
-  if (conversationalMetadata.build !== undefined || Array.isArray(conversationalMetadata.reasons)) {
-    return JSON.stringify(result, null, 2);
-  }
-
   const continuation = extractProtocolConversationContinuation(output);
+  const conversationalMetadata = output as {
+    build?: {
+      status?: string;
+      repoDir?: string;
+      packages?: Array<{ packageName?: string }>;
+    };
+    reasons?: string[];
+    missingInformation?: string[];
+    assumptionsOffered?: string[];
+  };
+  const packageNames = conversationalMetadata.build?.packages
+    ?.map((pkg) => pkg.packageName)
+    .filter((name): name is string => typeof name === "string" && name.length > 0) ?? [];
   const lines = [
     `invoke ${result.result.nodeId}.${result.result.provide}`,
     `status: ${continuation?.state === "awaiting_user" ? "awaiting_reply" : output.status ?? "completed"}`,
+    conversationalMetadata.build?.status ? `buildStatus: ${conversationalMetadata.build.status}` : "",
+    conversationalMetadata.build?.repoDir ? `repoDir: ${conversationalMetadata.build.repoDir}` : "",
+    packageNames.length > 0 ? `packages: ${packageNames.join(", ")}` : "",
     continuation?.state ? `continuation: ${continuation.state}` : "",
     continuation?.token ? `conversationToken: ${continuation.token}` : "",
     continuation?.state === "awaiting_user" ? `floor: ${continuation.owner.label ?? continuation.owner.nodeId}` : "",
-    continuation?.state === "awaiting_user"
-      ? "visible reply shown separately; do not paraphrase"
-      : "user-visible conversational result emitted separately",
+    Array.isArray(conversationalMetadata.reasons) && conversationalMetadata.reasons.length > 0
+      ? `reasons: ${conversationalMetadata.reasons.join(" | ")}`
+      : "",
+    Array.isArray(conversationalMetadata.missingInformation) && conversationalMetadata.missingInformation.length > 0
+      ? `missingInformation: ${conversationalMetadata.missingInformation.join(" | ")}`
+      : "",
+    Array.isArray(conversationalMetadata.assumptionsOffered) && conversationalMetadata.assumptionsOffered.length > 0
+      ? `assumptionsOffered: ${conversationalMetadata.assumptionsOffered.join(" | ")}`
+      : "",
+    "visible reply shown separately; do not paraphrase",
   ].filter(Boolean);
   return lines.join("\n");
 }
@@ -1948,15 +2019,8 @@ function createProtocolTool(
       }
       const result = await handleProtocolToolRequest(surface, request);
       emitProtocolInvokeResultMessage(projection, result);
-      const suppressConversationalToolBody =
-        result.ok
-        && result.action === "invoke"
-        && result.result.ok
-        && isConversationalProtocolOutput(result.result.output)
-        && !(result.result.output as { build?: unknown }).build
-        && !Array.isArray((result.result.output as { reasons?: unknown }).reasons);
       return {
-        content: suppressConversationalToolBody ? [] : [{ type: "text" as const, text: formatProtocolToolContent(result) }],
+        content: [{ type: "text" as const, text: formatProtocolToolContent(result) }],
         details: {
           action: request.action,
           result,
@@ -2358,6 +2422,7 @@ export function validateSchema(
 
   if (schema.type === "object" && value && typeof value === "object" && !Array.isArray(value)) {
     const objectValue = value as Record<string, unknown>;
+    const properties = schema.properties ?? {};
 
     for (const requiredKey of schema.required ?? []) {
       if (!(requiredKey in objectValue)) {
@@ -2365,9 +2430,24 @@ export function validateSchema(
       }
     }
 
-    for (const [key, propertySchema] of Object.entries(schema.properties ?? {})) {
+    for (const [key, propertySchema] of Object.entries(properties)) {
       if (key in objectValue) {
         const result = validateSchema(propertySchema, objectValue[key], `${label}.${key}`);
+        if (!result.ok) return result;
+      }
+    }
+
+    for (const [key, propertyValue] of Object.entries(objectValue)) {
+      if (key in properties) {
+        continue;
+      }
+
+      if (schema.additionalProperties === false) {
+        return { ok: false, message: `${label}.${key} is not allowed` };
+      }
+
+      if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+        const result = validateSchema(schema.additionalProperties, propertyValue, `${label}.${key}`);
         if (!result.ok) return result;
       }
     }

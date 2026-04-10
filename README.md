@@ -11,7 +11,7 @@ That is the only public provide.
 ## Public outcomes
 
 - `clarification_needed` — the ask is in scope, but pi-pi needs more information or confirmation before it can proceed
-- `completed` — pi-pi completed its internal certified build path and can include nested runtime-verified build details
+- `completed` — pi-pi either finished a direct answer/help turn or completed its certified build path; build completions can include nested runtime-verified details
 - `unsupported` — the ask is outside pi-pi's current certified package scope
 
 ## Multi-turn delegated chat contract
