@@ -1,79 +1,53 @@
 # pi-pi
 
-`pi-pi` is a protocol package builder for modern pi-protocol compatible Pi packages/extensions.
+`pi-pi` is an agent-backed builder for Pi packages/extensions that conform to pi-protocol 0.2.0.
 
-It registers protocol node `pi_pi`:
+It registers protocol node `pi_pi` with one public provide:
 
-- `build_package` — canonical public provide for build/adapt/repair/explain.
-- `chat` — optional chat-style alias accepting `message` or `request`.
+- `build_package` — chat with the builder agent and have it build/adapt/repair the requested package in `targetDir`.
 
-## Capability model and honesty rule
+## What pi-pi is
 
-`pi-pi` is not a generic scaffold generator. It currently has deterministic, behavior-specific templates for known package families, including:
+`pi-pi` understands the pi-protocol framework and project shape. It does not carry forced behavior templates. The behavior comes from the user's request, and the builder agent writes the requested implementation in the specified directory.
 
-- markdown summarizer protocol packages
-- project review agent packages
-- explicitly simple handler-backed protocol packages
-
-The handler is structured so an agent-backed builder can be plugged in through the Pi SDK AgentSession adapter. If no trusted agent executor is available and the deterministic builder cannot implement the requested behavior, `pi-pi` returns `unsupported` or `clarification_needed`; it does **not** claim `completed` for a generic placeholder.
+If a Pi SDK AgentSession is unavailable, `pi-pi` returns `unsupported` instead of pretending a generic scaffold is complete.
 
 ## Protocol invocation
 
-Through the global protocol tool/fabric, invoke `pi_pi.build_package`:
-
 ```json
 {
   "nodeId": "pi_pi",
   "provide": "build_package",
   "input": {
-    "request": "Build me a protocol package that exposes a handler provide for summarizing markdown files.",
-    "mode": "new",
-    "targetDir": "/absolute/path/to/my-package",
-    "applyChanges": true
+    "request": "Build a pi-protocol package that exposes the behavior I describe here...",
+    "targetDir": "/absolute/path/to/package"
   }
 }
 ```
 
-`applyChanges: false` is plan-only and may return `plan`/`filePreviews`. `applyChanges: true` can write files and therefore requires `targetDir`.
-
-Repair example:
-
-```json
-{
-  "nodeId": "pi_pi",
-  "provide": "build_package",
-  "input": {
-    "request": "Repair this package so it conforms to pi-protocol 0.2.0.",
-    "mode": "repair",
-    "targetDir": "/absolute/path/to/package",
-    "applyChanges": false
-  }
-}
-```
+`targetDir` is required because `pi-pi` is a file-writing builder.
 
 ## Slash command
 
-Slash commands remain safe and plan-only by default:
-
 ```text
-/pi_pi.build explain the required files for a pi-protocol package
-/pi_pi.chat repair this package so it conforms to pi-protocol 0.2.0
+/pi_pi.build /absolute/path/to/package build a pi-protocol package that ...
 ```
 
-Use protocol invocation with `targetDir` and `applyChanges: true` for file-writing mode.
+The slash command is only a local Pi convenience wrapper around `pi_pi.build_package`.
 
-## Modern package contract
+## Protocol contract the agent follows
 
-Generated or repaired packages should:
+Built packages should:
 
-- ship `package.json`, `pi.protocol.json`, `extension.ts`, `protocol/handlers.ts`, and `README.md`
 - use `protocolVersion: "0.2.0"`
-- use canonical provide execution, e.g. `{ "type": "handler", "handler": "summarize_markdown" }`
-- register from the extension with `ensureProtocolFabric()` and `registerProtocolManifest()`
-- call `fabric.unregister(nodeId)` before registration for reload-friendliness
-- import Pi types from `@earendil-works/pi-coding-agent`
-- use `@kyvernitria/pi-protocol-minimal` and `@kyvernitria/pi-protocol-pi-sdk` rather than vendoring protocol runtime code
-- use `fabric.invoke()` for cross-node calls instead of direct sibling imports
+- declare canonical provide execution: `{ "type": "handler", "handler": "..." }` or `{ "type": "agent", "agent": "..." }`
+- avoid legacy top-level `handler` / `agent` shorthand
+- register from `extension.ts` with `ensureProtocolFabric()` and `registerProtocolManifest()`
+- call `fabric.unregister(nodeId)` before registration
+- import Pi APIs from `@earendil-works/pi-coding-agent`
+- use `@kyvernitria/pi-protocol-minimal` and, when needed, `@kyvernitria/pi-protocol-pi-sdk`
+- keep Pi-specific APIs in the extension/adapter layer
+- use protocol fabric calls for cross-node interactions
 
 ## Global install
 

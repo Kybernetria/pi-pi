@@ -3,22 +3,17 @@
   "nodeId": "pi_pi",
   "packageId": "pi-pi",
   "version": "0.1.0",
-  "purpose": "Build, adapt, and repair pi-protocol compatible Pi packages/extensions.",
+  "purpose": "Agent-backed builder for pi-protocol compatible Pi packages/extensions.",
   "provides": [
     {
       "name": "build_package",
-      "description": "Build or repair a pi-protocol compatible package from a natural-language request.",
+      "description": "Chat with the pi-pi builder agent and have it build the requested package/extension in targetDir.",
       "inputSchema": {
         "type": "object",
-        "required": ["request"],
+        "required": ["request", "targetDir"],
         "properties": {
           "request": { "type": "string" },
-          "targetDir": { "type": "string" },
-          "applyChanges": { "type": "boolean" },
-          "mode": {
-            "type": "string",
-            "enum": ["new", "adapt", "repair", "explain"]
-          }
+          "targetDir": { "type": "string" }
         }
       },
       "outputSchema": {
@@ -42,14 +37,6 @@
           "diagnostics": {
             "type": "array",
             "items": { "type": "string" }
-          },
-          "plan": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "filePreviews": {
-            "type": "array",
-            "items": { "type": "string" }
           }
         }
       },
@@ -57,36 +44,6 @@
         "type": "handler",
         "handler": "build_package"
       },
-      "effects": ["file_read", "file_write"]
-    },
-    {
-      "name": "chat",
-      "description": "Chat-style alias for build_package. Use input.message or input.request.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "message": { "type": "string" },
-          "request": { "type": "string" },
-          "targetDir": { "type": "string" },
-          "applyChanges": { "type": "boolean" },
-          "mode": { "type": "string", "enum": ["new", "adapt", "repair", "explain"] }
-        }
-      },
-      "outputSchema": {
-        "type": "object",
-        "required": ["status", "summary"],
-        "properties": {
-          "status": { "type": "string" },
-          "summary": { "type": "string" },
-          "targetDir": { "type": "string" },
-          "filesWritten": { "type": "array", "items": { "type": "string" } },
-          "nextSteps": { "type": "array", "items": { "type": "string" } },
-          "diagnostics": { "type": "array", "items": { "type": "string" } },
-          "plan": { "type": "array", "items": { "type": "string" } },
-          "filePreviews": { "type": "array", "items": { "type": "string" } }
-        }
-      },
-      "execution": { "type": "handler", "handler": "chat" },
       "effects": ["file_read", "file_write"]
     }
   ]

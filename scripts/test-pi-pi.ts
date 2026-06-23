@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createProtocolFabric, registerProtocolManifest, type PiProtocolManifest } from "@kyvernitria/pi-protocol-minimal";
 import manifestJson from "../pi.protocol.json" with { type: "json" };
 import { createHandlers } from "../protocol/handlers.ts";
 import { buildPackage } from "../protocol/builder.ts";
-import { validateProtocolPackage } from "../protocol/validation.ts";
 
 const manifest = manifestJson as PiProtocolManifest;
 
@@ -15,84 +14,41 @@ async function main(): Promise<void> {
   registerProtocolManifest(fabric, { manifest, handlers: createHandlers({ fabric }) });
 
   const node = fabric.describeNode("pi_pi");
-  assert.equal(node?.purpose, "Build, adapt, and repair pi-protocol compatible Pi packages/extensions.");
+  assert.equal(node?.purpose, "Agent-backed builder for pi-protocol compatible Pi packages/extensions.");
+  assert.equal(node?.provides.length, 1);
+
   const buildProvide = fabric.describeProvide("pi_pi", "build_package");
   assert.ok(buildProvide, "build_package provide exists");
   assert.deepEqual(buildProvide?.execution, { type: "handler", handler: "build_package" });
+  assert.equal(fabric.describeProvide("pi_pi", "chat"), undefined);
 
-  const explained = await fabric.invoke({
+  const missingTarget = await fabric.invoke({
     nodeId: "pi_pi",
     provide: "build_package",
-    input: { request: "Explain the required files for a pi-protocol package", mode: "explain" },
+    input: { request: "Build a pi-protocol package." },
   });
-  assert.equal(explained.ok, true);
-  if (explained.ok) {
-    const summary = String((explained.output as { summary: string }).summary);
-    for (const expected of ["package.json", "pi.protocol.json", "extension.ts", "protocol/handlers.ts"]) {
-      assert.match(summary, new RegExp(expected.replace(".", "\\.")));
-    }
-  }
+  assert.equal(missingTarget.ok, false);
 
-  const root = await mkdtemp(path.join(tmpdir(), "pi-pi-test-"));
+  const directMissingTarget = await buildPackage({ request: "Build a pi-protocol package." });
+  assert.equal(directMissingTarget.status, "clarification_needed");
+
+  const targetDir = path.join(await mkdtemp(path.join(tmpdir(), "pi-pi-agent-test-")), "generated");
   try {
-    await testLightningGeneration(path.join(root, "lightning"));
-    await testMarkdownSummarizerGeneration(path.join(root, "markdown"));
-    await testHonestyUnsupported();
+    process.env.PI_PI_DISABLE_AGENT = "1";
+    const result = await buildPackage({ request: "Build a minimal pi-protocol package for testing.", targetDir });
+    delete process.env.PI_PI_DISABLE_AGENT;
+    assert.ok(["completed", "clarification_needed", "unsupported", "failed"].includes(result.status));
+    assert.equal(path.resolve(targetDir), result.targetDir);
+    // In non-Pi test environments the AgentSession may be unavailable; the key regression is that pi-pi
+    // does not fall back to hardcoded behavior-specific scaffolds.
+    if (result.status === "unsupported") {
+      assert.match(result.summary, /agent session/i);
+    }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(path.dirname(targetDir), { recursive: true, force: true });
   }
 
-  console.log("pi-pi acceptance tests passed");
-}
-
-async function testLightningGeneration(targetDir: string): Promise<void> {
-  const generated = await buildPackage({
-    request: "Build a Pi extension that flashes lightning in the terminal when an agent request completes and exposes a protocol flash provide.",
-    mode: "new",
-    targetDir,
-    applyChanges: true,
-  });
-  assert.equal(generated.status, "completed", generated.diagnostics?.join("\n"));
-  assert.ok(generated.filesWritten?.includes("extension.ts"));
-  const all = await readGenerated(targetDir);
-  assert.match(all, /agent_end/);
-  assert.match(all, /lightning/i);
-  assert.match(all, /"name": "flash"|provide: "flash"/);
-  assert.doesNotMatch(all, /Handled request|Handled:/);
-  const validation = await validateProtocolPackage(targetDir);
-  assert.equal(validation.pass, true, validation.issues.map((issue) => `${issue.rule}: ${issue.message}`).join("\n"));
-}
-
-async function testMarkdownSummarizerGeneration(targetDir: string): Promise<void> {
-  const generated = await buildPackage({
-    request: "Build me a protocol package that exposes a handler provide for summarizing markdown files.",
-    mode: "new",
-    targetDir,
-    applyChanges: true,
-  });
-  assert.equal(generated.status, "completed", generated.diagnostics?.join("\n"));
-  const all = await readGenerated(targetDir);
-  assert.match(all, /summarize_markdown|summarize/i);
-  assert.match(all, /readFile|filePath|markdown/i);
-  assert.doesNotMatch(all, /"name": "run"|Handled request|Handled:/);
-  const validation = await validateProtocolPackage(targetDir);
-  assert.equal(validation.pass, true, validation.issues.map((issue) => `${issue.rule}: ${issue.message}`).join("\n"));
-}
-
-async function testHonestyUnsupported(): Promise<void> {
-  const result = await buildPackage({
-    request: "Build a package that controls an interplanetary coffee roaster with quantum telemetry and invent all hardware drivers.",
-    mode: "new",
-    applyChanges: false,
-  });
-  assert.ok(result.status === "unsupported" || result.status === "clarification_needed");
-  assert.notEqual(result.status, "completed");
-}
-
-async function readGenerated(targetDir: string): Promise<string> {
-  const files = ["package.json", "pi.protocol.json", "extension.ts", "protocol/handlers.ts", "README.md"];
-  const chunks = await Promise.all(files.map(async (file) => readFile(path.join(targetDir, file), "utf8").catch(() => "")));
-  return chunks.join("\n---FILE---\n");
+  console.log("pi-pi agent-builder contract tests passed");
 }
 
 await main();

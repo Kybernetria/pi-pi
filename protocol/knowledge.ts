@@ -27,7 +27,7 @@ export function explainRequiredFiles(): string {
     "3. extension.ts — Pi adapter that ensures the shared fabric, unregisters the node for reloads, registers the manifest, and optionally registers slash commands.",
     "4. protocol/handlers.ts — handler-backed provide implementations returned from createHandlers().",
     "5. README.md — usage through protocol invoke and any slash command projection.",
-    "Optional: protocol/knowledge.ts, schemas, templates, validation, or Pi SDK agent executor adapters for agent-backed provides.",
+    "Optional: protocol/knowledge.ts, schemas, validation, or Pi SDK agent executor adapters for agent-backed provides.",
   ].join("\n");
 }
 
