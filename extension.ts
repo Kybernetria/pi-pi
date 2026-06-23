@@ -5,7 +5,7 @@ import {
   type PiProtocolManifest,
   type ProtocolFabric,
 } from "@kyvernitria/pi-protocol-minimal";
-import { createHandlers } from "./protocol/handlers.ts";
+import { createProtocolBuilderAgentExecutor, PROTOCOL_BUILDER_AGENT_NAME, PROTOCOL_BUILDER_SYSTEM_PROMPT } from "./protocol/agent-builder.ts";
 
 const NODE_ID = "pi_pi";
 
@@ -15,10 +15,16 @@ const manifest: PiProtocolManifest = {
   packageId: "pi-pi",
   version: "0.1.0",
   purpose: "Agent-backed builder for pi-protocol compatible Pi packages/extensions.",
+  agents: {
+    [PROTOCOL_BUILDER_AGENT_NAME]: {
+      description: "Pi Protocol package builder agent.",
+      systemPrompt: { text: PROTOCOL_BUILDER_SYSTEM_PROMPT, mode: "append" },
+    },
+  },
   provides: [
     {
       name: "build_package",
-      description: "Chat with the pi-pi builder agent and have it build the requested package/extension in targetDir.",
+      description: "Agent chat builder: tell pi-pi what package/extension to build and provide targetDir.",
       inputSchema: {
         type: "object",
         required: ["request", "targetDir"],
@@ -39,7 +45,7 @@ const manifest: PiProtocolManifest = {
           diagnostics: { type: "array", items: { type: "string" } },
         },
       },
-      execution: { type: "handler", handler: "build_package" },
+      execution: { type: "agent", agent: PROTOCOL_BUILDER_AGENT_NAME },
       effects: ["file_read", "file_write"],
     },
   ],
@@ -53,7 +59,9 @@ export default function piPiExtension(pi: ExtensionAPI): void {
 
   registerProtocolManifest(fabric, {
     manifest,
-    handlers: createHandlers({ pi, fabric }),
+    agentExecutors: {
+      [PROTOCOL_BUILDER_AGENT_NAME]: createProtocolBuilderAgentExecutor(),
+    },
   });
 
   registerSlashCommands(pi, fabric);
@@ -69,11 +77,7 @@ function registerSlashCommands(pi: ExtensionAPI, fabric: ProtocolFabric): void {
         return;
       }
 
-      const result = await fabric.invoke({
-        nodeId: NODE_ID,
-        provide: "build_package",
-        input: parsed,
-      });
+      const result = await fabric.invoke({ nodeId: NODE_ID, provide: "build_package", input: parsed });
       if (!result.ok) throw new Error(result.error.message);
       postCommandResult(pi, formatCommandOutput(result.output));
     },

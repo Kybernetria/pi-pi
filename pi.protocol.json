@@ -4,10 +4,19 @@
   "packageId": "pi-pi",
   "version": "0.1.0",
   "purpose": "Agent-backed builder for pi-protocol compatible Pi packages/extensions.",
+  "agents": {
+    "protocol_builder": {
+      "description": "Pi Protocol package builder agent.",
+      "systemPrompt": {
+        "text": "Build exactly the requested Pi package/extension in the supplied targetDir using pi-protocol 0.2.0. Do not produce generic placeholder behavior. Follow canonical execution, use @earendil-works/pi-coding-agent, use @kyvernitria/pi-protocol-minimal and @kyvernitria/pi-protocol-pi-sdk where needed, unregister before registering, and keep Pi APIs in extension/adapter code.",
+        "mode": "append"
+      }
+    }
+  },
   "provides": [
     {
       "name": "build_package",
-      "description": "Chat with the pi-pi builder agent and have it build the requested package/extension in targetDir.",
+      "description": "Agent chat builder: tell pi-pi what package/extension to build and provide targetDir.",
       "inputSchema": {
         "type": "object",
         "required": ["request", "targetDir"],
@@ -26,23 +35,14 @@
           },
           "summary": { "type": "string" },
           "targetDir": { "type": "string" },
-          "filesWritten": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "nextSteps": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "diagnostics": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "filesWritten": { "type": "array", "items": { "type": "string" } },
+          "nextSteps": { "type": "array", "items": { "type": "string" } },
+          "diagnostics": { "type": "array", "items": { "type": "string" } }
         }
       },
       "execution": {
-        "type": "handler",
-        "handler": "build_package"
+        "type": "agent",
+        "agent": "protocol_builder"
       },
       "effects": ["file_read", "file_write"]
     }
