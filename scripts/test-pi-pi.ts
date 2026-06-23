@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   });
 
   const node = fabric.describeNode("pi_pi");
-  assert.equal(node?.purpose, "Agent-backed builder for pi-protocol compatible Pi packages/extensions.");
+  assert.equal(node?.purpose, "Protocol-invoked agent builder for pi-protocol compatible Pi packages/extensions.");
   assert.equal(node?.provides.length, 1);
   assert.ok(node?.agents?.protocol_builder);
 

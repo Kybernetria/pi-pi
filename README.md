@@ -1,16 +1,18 @@
 # pi-pi
 
-`pi-pi` is an agent-backed builder for Pi packages/extensions that conform to pi-protocol 0.2.0.
+`pi-pi` is a protocol-invoked agent builder for Pi packages/extensions that conform to pi-protocol 0.2.0.
 
 It registers protocol node `pi_pi` with one public provide:
 
-- `build_package` — chat with the builder agent and have it build/adapt/repair the requested package in `targetDir`.
+- `build_package` — invoke the builder agent through the protocol fabric and have it build/adapt/repair the requested package in `targetDir`.
 
 ## What pi-pi is
 
 `pi-pi` understands the pi-protocol framework and project shape. It does not carry forced behavior templates. The behavior comes from the user's request, and the builder agent writes the requested implementation in the specified directory.
 
 If a Pi SDK AgentSession is unavailable, `pi-pi` returns `unsupported` instead of pretending a generic scaffold is complete.
+
+Important: using `pi-pi` means invoking `pi_pi.build_package` through the protocol fabric/tool. Manually writing files from an outer coding session bypasses pi-pi and is not a valid test of this package.
 
 ## Protocol invocation
 

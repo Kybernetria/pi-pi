@@ -14,7 +14,7 @@ const manifest: PiProtocolManifest = {
   nodeId: NODE_ID,
   packageId: "pi-pi",
   version: "0.1.0",
-  purpose: "Agent-backed builder for pi-protocol compatible Pi packages/extensions.",
+  purpose: "Protocol-invoked agent builder for pi-protocol compatible Pi packages/extensions.",
   agents: {
     [PROTOCOL_BUILDER_AGENT_NAME]: {
       description: "Pi Protocol package builder agent.",
@@ -24,7 +24,7 @@ const manifest: PiProtocolManifest = {
   provides: [
     {
       name: "build_package",
-      description: "Agent chat builder: tell pi-pi what package/extension to build and provide targetDir.",
+      description: "Invoke this protocol agent to build/adapt/repair the requested Pi package or extension in targetDir.",
       inputSchema: {
         type: "object",
         required: ["request", "targetDir"],
