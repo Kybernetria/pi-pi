@@ -10,5 +10,14 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["extensions/**/*.ts", "protocol/**/*.ts", "scripts/**/*.ts"]
+  "include": [
+    "extension.ts",
+    "protocol/handlers.ts",
+    "protocol/builder.ts",
+    "protocol/knowledge.ts",
+    "protocol/schemas.ts",
+    "protocol/templates.ts",
+    "protocol/validation.ts",
+    "scripts/test-pi-pi.ts"
+  ]
 }

@@ -1,18 +1,83 @@
 {
-  "protocolVersion": "0.1.0",
-  "nodeId": "pi-pi",
-  "purpose": "Use this as the chat-first authoritative Pi Protocol package builder; it accepts natural-language build requests, supports resumable delegated conversation via conversationToken, returns typed clarification/completed/unsupported outcomes with explicit continuation ownership, and uses completed both for direct answer/help turns and for certified build turns with runtime verification kept inside the build path.",
-  "tags": ["protocol", "generator", "validator", "typescript", "builder"],
+  "protocolVersion": "0.2.0",
+  "nodeId": "pi_pi",
+  "packageId": "pi-pi",
+  "version": "0.1.0",
+  "purpose": "Build, adapt, and repair pi-protocol compatible Pi packages/extensions.",
   "provides": [
     {
-      "name": "chat_pi_pi",
-      "description": "Handle a natural-language certified package-building request via input.message, resume delegated conversation with conversationToken when provided, return typed clarification/completed/unsupported outcomes plus explicit continuation ownership, answer directly when no build is needed, and include runtime-verified build details when build work completes. Use message, not text/prompt/query.",
-      "handler": "chat_pi_pi",
-      "version": "1.0.0",
-      "tags": ["builder", "chat-first", "runtime-verified", "authoritative"],
-      "effects": ["file_read", "file_write"],
-      "inputSchema": "./protocol/schemas/chat_pi_pi.input.json",
-      "outputSchema": "./protocol/schemas/chat_pi_pi.output.json"
+      "name": "build_package",
+      "description": "Build or repair a pi-protocol compatible package from a natural-language request.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["request"],
+        "properties": {
+          "request": { "type": "string" },
+          "targetDir": { "type": "string" },
+          "applyChanges": { "type": "boolean" },
+          "mode": {
+            "type": "string",
+            "enum": ["new", "adapt", "repair", "explain"]
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["status", "summary"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["completed", "clarification_needed", "unsupported", "failed"]
+          },
+          "summary": { "type": "string" },
+          "targetDir": { "type": "string" },
+          "filesWritten": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "nextSteps": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "execution": {
+        "type": "handler",
+        "handler": "build_package"
+      },
+      "effects": ["file_read", "file_write"]
+    },
+    {
+      "name": "chat",
+      "description": "Chat-style alias for build_package. Use input.message or input.request.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" },
+          "request": { "type": "string" },
+          "targetDir": { "type": "string" },
+          "applyChanges": { "type": "boolean" },
+          "mode": { "type": "string", "enum": ["new", "adapt", "repair", "explain"] }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["status", "summary"],
+        "properties": {
+          "status": { "type": "string" },
+          "summary": { "type": "string" },
+          "targetDir": { "type": "string" },
+          "filesWritten": { "type": "array", "items": { "type": "string" } },
+          "nextSteps": { "type": "array", "items": { "type": "string" } },
+          "diagnostics": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "execution": { "type": "handler", "handler": "chat" },
+      "effects": ["file_read", "file_write"]
     }
   ]
 }

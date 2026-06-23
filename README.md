@@ -1,77 +1,63 @@
 # pi-pi
 
-`pi-pi` is the chat-first authoritative builder for [pi-protocol](https://github.com/Kybernetria/pi-protocol) certified packages.
+`pi-pi` is the protocol package builder for modern pi-protocol compatible Pi packages/extensions.
 
-## Public protocol surface
+It registers protocol node `pi_pi` and exposes:
 
-- `chat_pi_pi`
+- `build_package` — build, adapt, repair, or explain pi-protocol packages.
+- `chat` — chat-style alias that accepts `message` or `request`.
 
-That is the only public provide.
-
-## Public outcomes
-
-- `clarification_needed` — the ask is in scope, but pi-pi needs more information or confirmation before it can proceed
-- `completed` — pi-pi either finished a direct answer/help turn or completed its certified build path; build completions can include nested runtime-verified details
-- `unsupported` — the ask is outside pi-pi's current certified package scope
-
-## Multi-turn delegated chat contract
-
-`chat_pi_pi` is now explicitly conversational.
-
-Input:
-
-- `message` — required natural-language turn text
-- `conversationToken` — optional token that resumes an existing delegated pi-pi conversation
-- `repoDir`, `applyChanges`, `replaceExisting` — optional execution hints
-
-Output may include:
-
-- `continuation.token`
-- `continuation.state` — `awaiting_user`, `awaiting_caller`, or `closed`
-- `continuation.owner` — the node/provide that currently owns the floor
-
-## Generated package model
-
-Generated packages stay TypeScript-first, manifest-first via `pi.protocol.json`, and self-contained with a vendored `vendor/pi-protocol-sdk.ts`.
-
-## Quick use
+## Protocol usage
 
 ```json
 {
   "action": "invoke",
   "request": {
-    "provide": "chat_pi_pi",
-    "target": { "nodeId": "pi-pi" },
+    "provide": "build_package",
+    "target": { "nodeId": "pi_pi" },
     "input": {
-      "message": "Build me an extension that summarizes markdown notes and offers a local command.",
-      "repoDir": "./packages/pi-notes",
-      "applyChanges": true
-    },
-    "handoff": { "opaque": true }
+      "request": "Explain the required files for a pi-protocol package",
+      "mode": "explain"
+    }
   }
 }
 ```
 
-Important: protocol callers must use `input.message` for natural-language input. Do not substitute `text`, `prompt`, `query`, or `content`.
-If pi-pi returns `continuation.state: "awaiting_user"`, route the next user turn back to `chat_pi_pi` with the same `conversationToken`.
+To generate files, call with a target directory and explicit write permission:
 
-Or from the UI:
-
-```text
-/chat-pi-pi build me an extension that summarizes markdown notes and offers a local command
+```json
+{
+  "request": "Build me a protocol package that exposes a handler provide for summarizing markdown files.",
+  "mode": "new",
+  "targetDir": "/absolute/path/to/my-package",
+  "applyChanges": true
+}
 ```
 
-## Install/load a generated package
+Slash commands are plan-only by default:
+
+```text
+/pi_pi.build explain the required files for a pi-protocol package
+/pi_pi.chat repair this package so it conforms to pi-protocol 0.2.0
+```
+
+## Modern package contract
+
+Generated or repaired packages should:
+
+- ship `package.json`, `pi.protocol.json`, `extension.ts`, `protocol/handlers.ts`, and `README.md`
+- use `protocolVersion: "0.2.0"`
+- use canonical provide execution, e.g. `{ "type": "handler", "handler": "run" }`
+- register from the extension with `ensureProtocolFabric()` and `registerProtocolManifest()`
+- call `fabric.unregister(nodeId)` before registration for reload-friendliness
+- import Pi types from `@earendil-works/pi-coding-agent`
+- use `@kyvernitria/pi-protocol-minimal` and `@kyvernitria/pi-protocol-pi-sdk` rather than vendoring protocol runtime code
+- use `fabric.invoke()` for cross-node calls instead of direct sibling imports
+
+## Development
 
 ```bash
 npm install
-pi install /absolute/path/to/package
-# or: pi install ./relative/path/to/package
-/reload
+npm run typecheck
+npm run test:pi-pi
 ```
-
-## Canonical contract
-
-Public `provides` are the only real inter-package contract.
-
-For contributor workflow see `CONTRIBUTING.md`. For internal boundaries and module ownership see `docs/ARCHITECTURE.md`.

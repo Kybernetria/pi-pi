@@ -3,33 +3,30 @@
   "version": "0.1.0",
   "type": "module",
   "keywords": ["pi-package", "pi-protocol", "generator"],
+  "exports": "./extension.ts",
   "scripts": {
-    "demo": "tsx scripts/demo.ts",
-    "demo:pair-runtime": "tsx scripts/demo-pair-runtime.ts",
-    "test:planning": "tsx scripts/test-planning-and-scaffolds.ts",
-    "test:routing-policy": "tsx scripts/test-routing-policy.ts",
-    "test:validator-fixtures": "tsx scripts/test-validator-failure-fixtures.ts",
-    "test:regressions": "tsx scripts/test-regressions.ts",
-    "test:sdk-session": "tsx scripts/test-sdk-session.ts",
-    "test:handoff": "tsx scripts/test-handoff.ts",
-    "test:conversation": "tsx scripts/test-conversation-routing.ts",
-    "test:chat-continuation": "tsx scripts/test-chat-continuation.ts",
-    "test:certified-builder": "tsx scripts/test-certified-builder.ts",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@sinclair/typebox": "^0.34.49",
-    "typescript": "^5.9.3"
-  },
-  "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*"
-  },
-  "devDependencies": {
-    "@mariozechner/pi-coding-agent": "^0.65.2",
-    "@types/node": "^24.5.2",
-    "tsx": "^4.20.6"
+    "typecheck": "tsc --noEmit",
+    "test:pi-pi": "tsx scripts/test-pi-pi.ts"
   },
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": ["./extension.ts"]
+  },
+  "dependencies": {
+    "@kyvernitria/pi-protocol-minimal": "file:../pi-protocol/packages/pi-protocol-minimal",
+    "@kyvernitria/pi-protocol-pi-sdk": "file:../pi-protocol/packages/pi-protocol-pi-sdk"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "file:/var/home/kyvernitria/.config/nvm/versions/node/v25.5.0/lib/node_modules/@earendil-works/pi-coding-agent",
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
   }
 }
