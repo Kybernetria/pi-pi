@@ -17,6 +17,8 @@ export interface BuildPackageOutput {
   filesWritten?: string[];
   nextSteps?: string[];
   diagnostics?: string[];
+  plan?: string[];
+  filePreviews?: string[];
 }
 
 export interface GeneratedPackageSpec {

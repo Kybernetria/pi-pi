@@ -2,13 +2,18 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { explainRequiredFiles, modernContractChecklist, PROTOCOL_KNOWLEDGE } from "./knowledge.ts";
 import type { BuildMode, BuildPackageInput, BuildPackageOutput, GeneratedPackageSpec } from "./schemas.ts";
-import { renderGeneratedPackage } from "./templates.ts";
+import { renderGeneratedPackage, renderJson, renderPackageForAnalysis } from "./templates.ts";
 import { validateProtocolPackage } from "./validation.ts";
+import { analyzeRequest } from "./request-analysis.ts";
+import { tryAgentBackedBuild } from "./agent-builder.ts";
 
 export async function buildPackage(input: BuildPackageInput): Promise<BuildPackageOutput> {
   const request = input.request.trim();
   if (!request) {
     return { status: "clarification_needed", summary: "Please provide a package-building, adaptation, repair, or explanation request." };
+  }
+  if (input.applyChanges && !input.targetDir) {
+    return { status: "clarification_needed", summary: "applyChanges: true requires targetDir so file writes are explicit and bounded." };
   }
 
   const mode = input.mode ?? inferMode(request);
@@ -30,21 +35,37 @@ async function repairPackage(input: BuildPackageInput): Promise<BuildPackageOutp
   if (!input.targetDir) {
     return {
       status: "clarification_needed",
-      summary: "Repair mode needs targetDir. I can then validate the package and provide exact fixes; set applyChanges true only when you want files written.",
+      summary: "Repair mode needs targetDir. I can then validate the package and provide exact fixes; set applyChanges true only when you want safe repairs written.",
       nextSteps: ["Invoke pi_pi.build_package with { request, mode: 'repair', targetDir, applyChanges: false } first."],
     };
   }
-  const validation = await validateProtocolPackage(input.targetDir);
+
+  const before = await validateProtocolPackage(input.targetDir);
+  if (!input.applyChanges || before.pass) {
+    return {
+      status: before.pass ? "completed" : "clarification_needed",
+      summary: before.pass
+        ? "Package already conforms to the lightweight pi-protocol 0.2.0 checks."
+        : `Package needs ${before.issues.length} repair(s) for pi-protocol 0.2.0 compatibility.`,
+      targetDir: before.packageDir,
+      diagnostics: before.issues.map((issue) => `${issue.rule}: ${issue.message} — ${issue.suggestedFix}`),
+      nextSteps: before.pass
+        ? ["Run npm run typecheck.", "Load/reload the Pi extension and inspect the protocol registry."]
+        : ["Apply the listed fixes or invoke with applyChanges: true for safe mechanical repairs.", "Run npm run typecheck."],
+    };
+  }
+
+  const filesWritten = await applySafeRepairs(before.packageDir);
+  const after = await validateProtocolPackage(before.packageDir);
   return {
-    status: validation.pass ? "completed" : "clarification_needed",
-    summary: validation.pass
-      ? "Package already conforms to the lightweight pi-protocol 0.2.0 checks."
-      : `Package needs ${validation.issues.length} repair(s) for pi-protocol 0.2.0 compatibility.`,
-    targetDir: validation.packageDir,
-    diagnostics: validation.issues.map((issue) => `${issue.rule}: ${issue.message} — ${issue.suggestedFix}`),
-    nextSteps: validation.pass
-      ? ["Run npm run typecheck.", "Load/reload the Pi extension and inspect the protocol registry."]
-      : ["Apply the listed fixes.", "Re-run pi_pi.build_package in repair mode.", "Run npm run typecheck."],
+    status: after.pass ? "completed" : "clarification_needed",
+    summary: after.pass
+      ? "Applied safe repairs and the package now passes lightweight pi-protocol 0.2.0 checks."
+      : `Applied safe repairs, but ${after.issues.length} issue(s) still need manual work.`,
+    targetDir: after.packageDir,
+    filesWritten,
+    diagnostics: after.issues.map((issue) => `${issue.rule}: ${issue.message} — ${issue.suggestedFix}`),
+    nextSteps: ["Review the diff.", "Run npm run typecheck.", "Reload the Pi extension and inspect the protocol registry."],
   };
 }
 
@@ -52,54 +73,69 @@ async function adaptPackage(input: BuildPackageInput): Promise<BuildPackageOutpu
   if (!input.targetDir) {
     return {
       status: "clarification_needed",
-      summary: "Adapt mode needs targetDir for the existing Pi extension. I will inspect it, propose a protocol 0.2.0 surface, and only write changes when applyChanges is true.",
+      summary: "Adapt mode needs targetDir for the existing Pi extension. I will inspect it, propose a protocol 0.2.0 surface, and only write safe changes when applyChanges is true.",
       nextSteps: ["Provide targetDir.", "Identify the capability that should become the public provide.", "Default to applyChanges: false for a reviewable plan."],
     };
   }
   const validation = await validateProtocolPackage(input.targetDir);
+  const files = await listInterestingFiles(validation.packageDir);
+  const diagnostics = validation.issues.map((issue) => `${issue.rule}: ${issue.message} — ${issue.suggestedFix}`);
+
+  if (input.applyChanges) return repairPackage({ ...input, mode: "repair" });
+
   return {
     status: validation.pass ? "completed" : "clarification_needed",
     summary: validation.pass
-      ? "The existing package already looks like a modern protocol package."
-      : "Adaptation plan: add/modernize package.json, pi.protocol.json, extension.ts, and protocol/handlers.ts using protocolVersion 0.2.0 and canonical execution.",
+      ? "The existing package already looks like a modern protocol package; adaptation should focus on exposing any additional real capabilities as provides."
+      : "Adaptation plan prepared from the existing package. I did not write files because applyChanges is false.",
     targetDir: validation.packageDir,
-    diagnostics: validation.issues.map((issue) => `${issue.rule}: ${issue.message}`),
+    diagnostics: [`Detected files: ${files.join(", ") || "none"}`, ...diagnostics],
     nextSteps: [
-      "Choose the public provide names and schemas from the extension's real capabilities.",
-      "Keep existing Pi UI code in extension.ts and route public calls through fabric.invoke where needed.",
-      "Do not import sibling protocol packages directly.",
+      "Map each existing user-visible behavior to a provide name, inputSchema, outputSchema, and handler/agent execution.",
+      "Keep Pi-specific hooks/commands in extension.ts and generic protocol behavior in protocol/handlers.ts.",
+      "Use fabric.invoke() for cross-node calls; do not directly import sibling protocol packages.",
+      "Invoke repair mode with applyChanges: true only for safe mechanical protocol 0.2.0 fixes.",
     ],
   };
 }
 
 async function newPackage(input: BuildPackageInput): Promise<BuildPackageOutput> {
-  const spec = inferGeneratedPackageSpec(input.request);
-  const generated = renderGeneratedPackage(spec);
-  const files = Object.keys(generated.files).sort();
+  const analysis = analyzeRequest(input.request);
+  const generated = renderPackageForAnalysis(analysis, input.request);
 
+  if (!generated) {
+    const agentResult = await tryAgentBackedBuild(input);
+    if (agentResult) return agentResult;
+    return {
+      status: "unsupported",
+      summary: "I cannot yet implement this behavior automatically without an available agent-backed builder.",
+      targetDir: input.targetDir,
+      diagnostics: [
+        `No deterministic template matched: ${analysis.reason}.`,
+        "Known deterministic families: markdown summarizer, lightning/terminal notification extension, project review agent, simple explicitly handler-backed package.",
+      ],
+      nextSteps: ["Clarify the requested provides, Pi hooks, schemas, and file effects, or enable a trusted Pi SDK agent-backed builder."],
+    };
+  }
+
+  const files = Object.keys(generated.files).sort();
   if (!input.applyChanges) {
     return {
       status: "completed",
-      summary: `Plan for ${spec.packageName}: generate a protocol 0.2.0 Pi package exposing ${spec.nodeId}.${spec.provideName}. Files: ${files.join(", ")}.`,
+      summary: `Plan for ${analysis.packageName}: generate behavior-specific ${analysis.family} package exposing ${analysis.nodeId}.${analysis.provideName}.`,
       targetDir: input.targetDir,
       nextSteps: [
-        "Review the inferred package name, nodeId, provide name, and schemas.",
-        "Invoke again with targetDir and applyChanges: true to write the starter package.",
+        "Review the inferred package name, nodeId, provide name, schemas, and behavior-specific implementation.",
+        "Invoke again with targetDir and applyChanges: true to write files.",
         "Run npm install and npm run typecheck in the generated package.",
       ],
-      diagnostics: ["No files written because applyChanges was false.", compactKnowledgeDigest()],
+      diagnostics: ["No files written because applyChanges was false.", `Files previewed: ${files.join(", ")}`, compactKnowledgeDigest()],
+      plan: files.map((file) => `write ${file}`),
+      filePreviews: previewFiles(generated.files),
     };
   }
 
-  if (!input.targetDir) {
-    return {
-      status: "clarification_needed",
-      summary: "New package generation with applyChanges true requires targetDir.",
-      nextSteps: ["Provide an empty or intended package directory as targetDir."],
-    };
-  }
-
-  const targetDir = path.resolve(input.targetDir);
+  const targetDir = path.resolve(input.targetDir!);
   const filesWritten: string[] = [];
   for (const [relativePath, content] of Object.entries(generated.files)) {
     const fullPath = path.join(targetDir, relativePath);
@@ -112,7 +148,7 @@ async function newPackage(input: BuildPackageInput): Promise<BuildPackageOutput>
   return {
     status: validation.pass ? "completed" : "failed",
     summary: validation.pass
-      ? `Generated ${spec.packageName} as a pi-protocol 0.2.0 package exposing ${spec.nodeId}.${spec.provideName}.`
+      ? `Generated ${analysis.packageName} as a behavior-specific pi-protocol 0.2.0 package exposing ${analysis.nodeId}.${analysis.provideName}.`
       : `Generated files, but validation found ${validation.issues.length} issue(s).`,
     targetDir,
     filesWritten: filesWritten.sort(),
@@ -129,48 +165,94 @@ function inferMode(request: string): BuildMode {
   return "new";
 }
 
-function inferGeneratedPackageSpec(request: string): GeneratedPackageSpec {
-  const lower = request.toLowerCase();
-  const explicitPackage = lower.match(/(?:package|named|called)\s+([a-z][a-z0-9-]+)/)?.[1];
-  const base = explicitPackage ?? inferBaseName(lower);
-  const packageName = base.startsWith("pi-") ? base : `pi-${base}`;
-  const nodeId = packageName.replace(/^pi-/, "pi_").replaceAll("-", "_");
-  const provideName = inferProvideName(lower);
-  return {
-    packageName,
-    nodeId,
-    purpose: inferPurpose(request, provideName),
-    provideName,
-    provideDescription: inferProvideDescription(request, provideName),
-    handlerName: provideName,
-    slashCommandName: `${nodeId}.${provideName}`,
-  };
+async function applySafeRepairs(root: string): Promise<string[]> {
+  const written = new Set<string>();
+  const packagePath = path.join(root, "package.json");
+  const manifestPath = path.join(root, "pi.protocol.json");
+  const extensionPath = path.join(root, "extension.ts");
+  const handlersPath = path.join(root, "protocol", "handlers.ts");
+
+  const packageJson = await readJsonObject(packagePath);
+  if (packageJson) {
+    packageJson.type ??= "module";
+    packageJson.exports ??= "./extension.ts";
+    packageJson.pi = typeof packageJson.pi === "object" && packageJson.pi ? packageJson.pi : {};
+    (packageJson.pi as Record<string, unknown>).extensions = ["./extension.ts"];
+    packageJson.dependencies = { ...((packageJson.dependencies as object | undefined) ?? {}), "@kyvernitria/pi-protocol-minimal": "^0.2.0" };
+    packageJson.peerDependencies = { ...((packageJson.peerDependencies as object | undefined) ?? {}), "@earendil-works/pi-coding-agent": "*" };
+    await fs.writeFile(packagePath, renderJson(packageJson), "utf8");
+    written.add("package.json");
+  }
+
+  const manifest = await readJsonObject(manifestPath);
+  if (manifest) {
+    manifest.protocolVersion = "0.2.0";
+    if (Array.isArray(manifest.provides)) {
+      for (const provide of manifest.provides as Record<string, unknown>[]) {
+        if (!provide.execution && typeof provide.handler === "string") provide.execution = { type: "handler", handler: provide.handler };
+        if (!provide.execution && typeof provide.agent === "string") provide.execution = { type: "agent", agent: provide.agent };
+        delete provide.handler;
+        delete provide.agent;
+      }
+    }
+    await fs.writeFile(manifestPath, renderJson(manifest), "utf8");
+    written.add("pi.protocol.json");
+  }
+
+  if (!(await exists(extensionPath)) && manifest?.nodeId) {
+    await fs.writeFile(extensionPath, minimalExtension(String(manifest.nodeId)), "utf8");
+    written.add("extension.ts");
+  }
+  if (!(await exists(handlersPath)) && manifest && Array.isArray(manifest.provides)) {
+    const handlers = (manifest.provides as { execution?: { type?: string; handler?: string } }[]).filter((p) => p.execution?.type === "handler" && p.execution.handler).map((p) => p.execution!.handler!);
+    if (handlers.length) {
+      await fs.mkdir(path.dirname(handlersPath), { recursive: true });
+      await fs.writeFile(handlersPath, minimalHandlers(handlers), "utf8");
+      written.add("protocol/handlers.ts");
+    }
+  }
+  return [...written].sort();
 }
 
-function inferBaseName(lower: string): string {
-  if (lower.includes("markdown") || lower.includes("md")) return "markdown-tools";
-  if (lower.includes("review")) return "project-review";
-  if (lower.includes("summar")) return "summarizer";
-  return "protocol-package";
+function minimalExtension(nodeId: string): string {
+  return `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";\nimport { ensureProtocolFabric, registerProtocolManifest, type PiProtocolManifest } from "@kyvernitria/pi-protocol-minimal";\nimport manifestJson from "./pi.protocol.json" with { type: "json" };\nimport { createHandlers } from "./protocol/handlers.ts";\n\nconst manifest = manifestJson as PiProtocolManifest;\n\nexport default function extension(_pi: ExtensionAPI): void {\n  const fabric = ensureProtocolFabric();\n  fabric.unregister("${nodeId}");\n  registerProtocolManifest(fabric, { manifest, handlers: createHandlers({ fabric }) });\n}\n`;
 }
 
-function inferProvideName(lower: string): string {
-  const explicit = lower.match(/provide(?: named| called)?\s+([a-z][a-z0-9_]*)/)?.[1];
-  if (explicit) return explicit;
-  if (lower.includes("summar")) return "summarize";
-  if (lower.includes("review")) return "review";
-  if (lower.includes("repair") || lower.includes("validate")) return "validate_package";
-  return "run";
+function minimalHandlers(handlers: string[]): string {
+  return `import type { ProtocolHandler } from "@kyvernitria/pi-protocol-minimal";\n\nexport function createHandlers(): Record<string, ProtocolHandler> {\n  return {\n${handlers.map((handler) => `    ${handler}: async () => { throw new Error("Handler ${handler} still needs the package-specific implementation after protocol repair."); },`).join("\n")}\n  };\n}\n`;
 }
 
-function inferPurpose(request: string, provideName: string): string {
-  return `Protocol package generated to ${provideName.replaceAll("_", " ")} requests: ${request.slice(0, 140)}`;
+async function listInterestingFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const rel of ["package.json", "pi.protocol.json", "extension.ts", "protocol/handlers.ts", "README.md"]) {
+    if (await exists(path.join(root, rel))) out.push(rel);
+  }
+  return out;
 }
 
-function inferProvideDescription(request: string, provideName: string): string {
-  return `Handle ${provideName.replaceAll("_", " ")} requests for: ${request.slice(0, 120)}`;
+async function exists(filePath: string): Promise<boolean> { try { await fs.access(filePath); return true; } catch { return false; } }
+async function readJsonObject(filePath: string): Promise<Record<string, unknown> | undefined> { try { const value = JSON.parse(await fs.readFile(filePath, "utf8")); return value && typeof value === "object" && !Array.isArray(value) ? value : undefined; } catch { return undefined; } }
+
+function previewFiles(files: Record<string, string>): string[] {
+  return Object.entries(files).map(([file, content]) => `${file}:\n${content.slice(0, 1200)}`);
 }
 
 function compactKnowledgeDigest(): string {
   return PROTOCOL_KNOWLEDGE.split("\n").filter((line) => line.trim().startsWith("-")).slice(0, 5).join(" ");
 }
+
+// Kept for source compatibility with older tests/imports that called renderGeneratedPackage through inferred specs.
+export function inferGeneratedPackageSpec(request: string): GeneratedPackageSpec {
+  const analysis = analyzeRequest(request);
+  return {
+    packageName: analysis.packageName,
+    nodeId: analysis.nodeId,
+    purpose: `Protocol package generated for: ${request.slice(0, 140)}`,
+    provideName: analysis.provideName,
+    provideDescription: `Handle ${analysis.provideName.replaceAll("_", " ")} requests.`,
+    handlerName: analysis.provideName,
+    slashCommandName: `${analysis.nodeId}.${analysis.provideName}`,
+  };
+}
+
+void renderGeneratedPackage;

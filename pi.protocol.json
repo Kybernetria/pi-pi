@@ -42,6 +42,14 @@
           "diagnostics": {
             "type": "array",
             "items": { "type": "string" }
+          },
+          "plan": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "filePreviews": {
+            "type": "array",
+            "items": { "type": "string" }
           }
         }
       },
@@ -73,7 +81,9 @@
           "targetDir": { "type": "string" },
           "filesWritten": { "type": "array", "items": { "type": "string" } },
           "nextSteps": { "type": "array", "items": { "type": "string" } },
-          "diagnostics": { "type": "array", "items": { "type": "string" } }
+          "diagnostics": { "type": "array", "items": { "type": "string" } },
+          "plan": { "type": "array", "items": { "type": "string" } },
+          "filePreviews": { "type": "array", "items": { "type": "string" } }
         }
       },
       "execution": { "type": "handler", "handler": "chat" },
