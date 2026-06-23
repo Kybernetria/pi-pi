@@ -1,6 +1,6 @@
 export type RequestFamily =
   | "markdown_summarizer"
-  | "terminal_notification"
+  | "custom_pi_extension"
   | "project_review_agent"
   | "simple_handler"
   | "unknown";
@@ -22,7 +22,7 @@ export function analyzeRequest(request: string): RequestAnalysis {
   }
 
   if (/lightning|flash|terminal|notify|notification/.test(lower) && /(agent|request|complete|end|done|flash)/.test(lower)) {
-    return analysis("terminal_notification", explicitPackage ?? "pi-terminal-notifier", "flash", "terminal/Pi hook notification request");
+    return analysis("custom_pi_extension", explicitPackage ?? "pi-generated-extension", "flash", "specific Pi extension behavior request");
   }
 
   if (/project|task/.test(lower) && /review/.test(lower)) {

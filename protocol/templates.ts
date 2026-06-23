@@ -11,7 +11,7 @@ export function renderGeneratedPackage(spec: GeneratedPackageSpec): GeneratedPac
 
 export function renderPackageForAnalysis(analysis: RequestAnalysis, request: string): GeneratedPackageFiles | undefined {
   if (analysis.family === "markdown_summarizer") return renderMarkdownSummarizer(analysis, request);
-  if (analysis.family === "terminal_notification") return renderTerminalNotification(analysis, request);
+  if (analysis.family === "custom_pi_extension") return renderCustomPiExtension(analysis, request);
   if (analysis.family === "project_review_agent") return renderProjectReviewAgent(analysis, request);
   if (analysis.family === "simple_handler") {
     return renderSimpleHandlerPackage({
@@ -82,7 +82,7 @@ function renderMarkdownSummarizer(analysis: RequestAnalysis, request: string): G
   }};
 }
 
-function renderTerminalNotification(analysis: RequestAnalysis, request: string): GeneratedPackageFiles {
+function renderCustomPiExtension(analysis: RequestAnalysis, request: string): GeneratedPackageFiles {
   const provide = {
     name: "flash",
     description: "Flash a lightning notification in the Pi terminal/UI.",
