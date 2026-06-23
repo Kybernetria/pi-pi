@@ -112,7 +112,7 @@ async function newPackage(input: BuildPackageInput): Promise<BuildPackageOutput>
       targetDir: input.targetDir,
       diagnostics: [
         `No deterministic template matched: ${analysis.reason}.`,
-        "Known deterministic families: markdown summarizer, lightning/terminal notification extension, project review agent, simple explicitly handler-backed package.",
+        "Known deterministic families: markdown summarizer, Pi hook/terminal notification extension, project review agent, simple explicitly handler-backed package.",
       ],
       nextSteps: ["Clarify the requested provides, Pi hooks, schemas, and file effects, or enable a trusted Pi SDK agent-backed builder."],
     };

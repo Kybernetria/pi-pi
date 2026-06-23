@@ -12,7 +12,7 @@ It registers protocol node `pi_pi`:
 `pi-pi` is not a generic scaffold generator. It currently has deterministic, behavior-specific templates for known package families, including:
 
 - markdown summarizer protocol packages
-- lightning/terminal notification extensions using Pi hooks such as `agent_end`
+- Pi hook/terminal notification extensions, parameterized by hooks such as `agent_end` and actions such as terminal/UI flashes
 - project review agent packages
 - explicitly simple handler-backed protocol packages
 
@@ -58,7 +58,7 @@ Slash commands remain safe and plan-only by default:
 
 ```text
 /pi_pi.build explain the required files for a pi-protocol package
-/pi_pi.build Build a Pi extension that flashes lightning in the terminal when an agent request completes and exposes a protocol flash provide.
+/pi_pi.build Build a Pi extension that notifies in the terminal when an agent request completes and exposes a protocol notify provide.
 /pi_pi.chat repair this package so it conforms to pi-protocol 0.2.0
 ```
 
