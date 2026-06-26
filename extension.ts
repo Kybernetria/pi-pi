@@ -14,7 +14,28 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { PiProtocolManifest, ProtocolFabric } from "@kyvernitria/pi-protocol-minimal";
+// Local protocol types — avoids import from pi-protocol-minimal
+// which isn't guaranteed to be resolvable at static-analysis time.
+interface ProvideSpec {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  execution: { type: string; handler: string };
+  effects?: string[];
+}
+interface PiProtocolManifest {
+  protocolVersion: string;
+  nodeId: string;
+  packageId: string;
+  version: string;
+  purpose: string;
+  provides: ProvideSpec[];
+}
+interface ProtocolFabric {
+  unregister(nodeId: string): void;
+  invoke(request: { nodeId: string; provide: string; input?: unknown; callerNodeId?: string }): Promise<{ ok: true; output: unknown } | { ok: false; error: { message: string } }>;
+}
 import { createProtocolBuilderAgentExecutor, PROTOCOL_BUILDER_AGENT_NAME } from "./protocol/agent-builder.ts";
 
 const _require = createRequire(import.meta.url);
