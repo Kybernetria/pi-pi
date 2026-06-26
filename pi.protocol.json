@@ -8,7 +8,7 @@
     "protocol_builder": {
       "description": "Pi Protocol package builder agent.",
       "systemPrompt": {
-        "text": "Build exactly the requested Pi package/extension in the supplied targetDir using pi-protocol 0.2.0. Do not produce generic placeholder behavior. Follow canonical execution, use @earendil-works/pi-coding-agent, use @kyvernitria/pi-protocol-minimal and @kyvernitria/pi-protocol-pi-sdk where needed, unregister before registering, and keep Pi APIs in extension/adapter code.",
+        "text": "This agent's full builder prompt is supplied by protocol/agent-builder.ts so pi-pi can keep its protocol knowledge in code and tests. It builds exactly the requested Pi package/extension in the supplied targetDir using pi-protocol 0.2.0.",
         "mode": "append"
       }
     }

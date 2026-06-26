@@ -38,7 +38,7 @@ export async function validateProtocolPackage(packageDir: string): Promise<Valid
   }
 
   const packageJson = await readJson(packageJsonPath, issues, "package-json.parse");
-  const manifest = await readJson(manifestPath, issues, "manifest.parse") as { protocolVersion?: unknown; nodeId?: unknown; purpose?: unknown; provides?: ManifestProvide[] } | null;
+  const manifest = await readJson(manifestPath, issues, "manifest.parse") as { protocolVersion?: unknown; nodeId?: unknown; purpose?: unknown; agents?: Record<string, unknown>; provides?: ManifestProvide[] } | null;
   const extensionSource = await readText(extensionPath);
   const handlersSource = await readText(handlersPath);
 
@@ -85,7 +85,11 @@ export async function validateProtocolPackage(packageDir: string): Promise<Valid
         if (!isNonEmptyString(provide.execution.handler)) issue(issues, `provide.execution.handler.${name}`, `Handler-backed provide ${name} is missing execution.handler`, "Set execution.handler.");
         else expectedHandlers.add(provide.execution.handler);
       } else if (provide.execution.type === "agent") {
-        if (!isNonEmptyString(provide.execution.agent)) issue(issues, `provide.execution.agent.${name}`, `Agent-backed provide ${name} is missing execution.agent`, "Set execution.agent and declare manifest.agents.");
+        if (!isNonEmptyString(provide.execution.agent)) {
+          issue(issues, `provide.execution.agent.${name}`, `Agent-backed provide ${name} is missing execution.agent`, "Set execution.agent and declare manifest.agents.");
+        } else if (!manifest.agents || typeof manifest.agents !== "object" || !(provide.execution.agent in manifest.agents)) {
+          issue(issues, `provide.execution.agent-declared.${name}`, `Agent-backed provide ${name} references undeclared agent ${provide.execution.agent}`, "Declare the agent under manifest.agents with a useful description/systemPrompt.");
+        }
       } else {
         issue(issues, `provide.execution.type.${name}`, `Provide ${name} has invalid execution.type`, "Use handler or agent execution.");
       }

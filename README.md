@@ -10,9 +10,19 @@ It registers protocol node `pi_pi` with one public provide:
 
 `pi-pi` understands the pi-protocol framework and project shape. It does not carry forced behavior templates. The behavior comes from the user's request, and the builder agent writes the requested implementation in the specified directory.
 
-If a Pi SDK AgentSession is unavailable, `pi-pi` returns `unsupported` instead of pretending a generic scaffold is complete.
+`pi_pi.build_package` is intentionally a clean exemplar agent provide: the registered executor is the Pi SDK AgentSession adapter itself. Protocol provenance, runtime streaming, session control, and aborts flow through the normal fabric invocation path. The builder's full operational prompt lives in `protocol/agent-builder.ts`; the manifest prompt is descriptive so there is one authoritative implementation prompt.
 
 Important: using `pi-pi` means invoking `pi_pi.build_package` through the protocol fabric/tool. Manually writing files from an outer coding session bypasses pi-pi and is not a valid test of this package.
+
+## Shape
+
+```text
+fabric.invoke(pi_pi.build_package)
+  -> protocol_builder ProtocolAgentExecutor
+    -> one Pi SDK AgentSession
+```
+
+There is no handler-style wrapper that creates an inner SDK executor. Validation/repair helpers should be separate handler provides if added later.
 
 ## Protocol invocation
 
@@ -50,6 +60,7 @@ Built packages should:
 - use `@kyvernitria/pi-protocol-minimal` and, when needed, `@kyvernitria/pi-protocol-pi-sdk`
 - keep Pi-specific APIs in the extension/adapter layer
 - use protocol fabric calls for cross-node interactions
+- only require `protocol/handlers.ts` when a generated package declares handler-backed provides
 
 ## Global install
 

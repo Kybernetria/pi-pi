@@ -1,61 +1,54 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  ensureProtocolFabric,
-  registerProtocolManifest,
-  type PiProtocolManifest,
-  type ProtocolFabric,
-} from "@kyvernitria/pi-protocol-minimal";
-import { createProtocolBuilderAgentExecutor, PROTOCOL_BUILDER_AGENT_NAME, PROTOCOL_BUILDER_SYSTEM_PROMPT } from "./protocol/agent-builder.ts";
+/**
+ * pi-pi — Protocol-invoked agent builder for pi-protocol compatible packages.
+ *
+ * Registers the pi_pi node on the protocol fabric.
+ *
+ * Bootstrap ensures @kyvernitria/pi-protocol-minimal is available for ALL
+ * pi-protocol certified extensions by self-installing into node_modules.
+ * First load creates the symlink; subsequent loads find it already present.
+ */
 
+import { createRequire } from "node:module";
+import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { PiProtocolManifest, ProtocolFabric } from "@kyvernitria/pi-protocol-minimal";
+import { createProtocolBuilderAgentExecutor, PROTOCOL_BUILDER_AGENT_NAME } from "./protocol/agent-builder.ts";
+
+const _require = createRequire(import.meta.url);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function ensureProtocolMinimal(): void {
+  try { _require.resolve("@kyvernitria/pi-protocol-minimal"); return; } catch {}
+
+  const targetDir = join(__dirname, "node_modules", "@kyvernitria");
+  const target = join(targetDir, "pi-protocol-minimal");
+
+  const localRepo = join(homedir(), "Applications", "pi", "pi-protocol", "packages", "pi-protocol-minimal");
+  if (existsSync(localRepo)) {
+    mkdirSync(targetDir, { recursive: true });
+    symlinkSync(localRepo, target, "dir");
+    return;
+  }
+
+  const { execSync } = _require("node:child_process");
+  mkdirSync(targetDir, { recursive: true });
+  execSync("npm install @kyvernitria/pi-protocol-minimal@latest", { cwd: __dirname, stdio: "pipe" });
+}
+
+const manifest: PiProtocolManifest = JSON.parse(
+  readFileSync(new URL("./pi.protocol.json", import.meta.url), "utf8"),
+);
 const NODE_ID = "pi_pi";
 
-const manifest: PiProtocolManifest = {
-  protocolVersion: "0.2.0",
-  nodeId: NODE_ID,
-  packageId: "pi-pi",
-  version: "0.1.0",
-  purpose: "Protocol-invoked agent builder for pi-protocol compatible Pi packages/extensions.",
-  agents: {
-    [PROTOCOL_BUILDER_AGENT_NAME]: {
-      description: "Pi Protocol package builder agent.",
-      systemPrompt: { text: PROTOCOL_BUILDER_SYSTEM_PROMPT, mode: "append" },
-    },
-  },
-  provides: [
-    {
-      name: "build_package",
-      description: "Invoke this protocol agent to build/adapt/repair the requested Pi package or extension in targetDir.",
-      inputSchema: {
-        type: "object",
-        required: ["request", "targetDir"],
-        properties: {
-          request: { type: "string" },
-          targetDir: { type: "string" },
-        },
-      },
-      outputSchema: {
-        type: "object",
-        required: ["status", "summary"],
-        properties: {
-          status: { type: "string", enum: ["completed", "clarification_needed", "unsupported", "failed"] },
-          summary: { type: "string" },
-          targetDir: { type: "string" },
-          filesWritten: { type: "array", items: { type: "string" } },
-          nextSteps: { type: "array", items: { type: "string" } },
-          diagnostics: { type: "array", items: { type: "string" } },
-        },
-      },
-      execution: { type: "agent", agent: PROTOCOL_BUILDER_AGENT_NAME },
-      effects: ["file_read", "file_write"],
-    },
-  ],
-};
-
 export default function piPiExtension(pi: ExtensionAPI): void {
-  const fabric = ensureProtocolFabric();
+  ensureProtocolMinimal();
+  const { ensureProtocolFabric, registerProtocolManifest } = _require("@kyvernitria/pi-protocol-minimal");
 
+  const fabric = ensureProtocolFabric();
   fabric.unregister(NODE_ID);
-  fabric.unregister("pi-pi");
 
   registerProtocolManifest(fabric, {
     manifest,
@@ -77,42 +70,28 @@ function registerSlashCommands(pi: ExtensionAPI, fabric: ProtocolFabric): void {
         return;
       }
 
-      const result = await fabric.invoke({ nodeId: NODE_ID, provide: "build_package", input: parsed });
-      if (!result.ok) throw new Error(result.error.message);
-      postCommandResult(pi, formatCommandOutput(result.output));
+      try {
+        const { invokeProtocol } = await import("./protocol/invoke.js");
+        const result = await invokeProtocol(parsed);
+        postCommandResult(pi, `**pi_pi.build**\n\nResult: ${JSON.stringify(result, null, 2)}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        postCommandResult(pi, `**pi_pi.build**\n\nError: ${msg}`);
+      }
     },
   });
 }
 
-function parseBuildArgs(args: string): { targetDir: string; request: string } | undefined {
-  const text = args.trim();
-  const match = text.match(/^(\S+)\s+([\s\S]+)$/);
-  if (!match) return undefined;
-  const [, targetDir, request] = match;
-  if (!targetDir || !request?.trim()) return undefined;
-  return { targetDir, request: request.trim() };
-}
-
-function formatCommandOutput(output: unknown): string {
-  const result = output as { summary?: unknown; nextSteps?: unknown; diagnostics?: unknown; filesWritten?: unknown };
-  const parts = ["**pi_pi.build**", String(result.summary ?? JSON.stringify(output, null, 2))];
-  if (Array.isArray(result.filesWritten) && result.filesWritten.length > 0) {
-    parts.push(`Files written: ${result.filesWritten.map(String).join(", ")}`);
-  }
-  if (Array.isArray(result.nextSteps) && result.nextSteps.length > 0) {
-    parts.push(`Next steps:\n${result.nextSteps.map((item) => `- ${String(item)}`).join("\n")}`);
-  }
-  if (Array.isArray(result.diagnostics) && result.diagnostics.length > 0) {
-    parts.push(`Diagnostics:\n${result.diagnostics.map((item) => `- ${String(item)}`).join("\n")}`);
-  }
-  return parts.join("\n\n");
+function parseBuildArgs(args: string): { targetDir: string; request: string } | null {
+  const parts = args.trim().match(/^(\S+)\s+(.+)$/);
+  if (!parts) return null;
+  return { targetDir: parts[1], request: parts[2] };
 }
 
 function postCommandResult(pi: ExtensionAPI, content: string): void {
-  const api = pi as ExtensionAPI & { sendMessage?: (message: { customType: string; content: string; display: boolean }) => void; sendUserMessage?: (message: string, options?: unknown) => void };
-  if (typeof api.sendMessage === "function") {
-    api.sendMessage({ customType: "pi_pi.command_result", content, display: true });
-    return;
-  }
-  api.sendUserMessage?.(content, { deliverAs: "followUp" });
+  pi.sendMessage({
+    customType: "pi-pi.command_result",
+    content,
+    display: true,
+  });
 }
