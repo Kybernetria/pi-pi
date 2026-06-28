@@ -10,10 +10,12 @@ Modern pi-protocol package contract:
 - Every provide must include name, description, inputSchema, outputSchema, and canonical execution.
 - Handler-backed execution is { "type": "handler", "handler": "handler_name" } and requires createHandlers() to return that key.
 - Agent-backed execution is { "type": "agent", "agent": "agent_name" } and requires manifest.agents[agent_name].
+- Agent-backed provides may set manifest.agents[agent_name].modelHint.specific to a concrete Pi model, preferably "provider/model-id"; if omitted, the agent uses normal Pi model selection/defaults.
+- modelHint.thinkingLevel may set the Pi thinking level for that agent; modelHint.tier is advisory metadata only.
 - Legacy top-level provide.handler or provide.agent shorthand is invalid.
-- Do not vendor/duplicate protocol runtime code; use @kyvernitria/pi-protocol-minimal and, for Pi SDK agent executors, @kyvernitria/pi-protocol-pi-sdk.
-- Do not use unpublished package versions like "latest" for @kyvernitria/pi-protocol-* unless they are actually published.
-- For temporary local smoke tests only, file dependencies may point at local working trees, e.g. @kyvernitria/pi-protocol-minimal as file:/var/home/kyvernitria/Applications/pi/pi-protocol/packages/pi-protocol-minimal and @kyvernitria/pi-protocol-pi-sdk as file:/var/home/kyvernitria/Applications/pi/pi-protocol/packages/pi-protocol-pi-sdk.
+- Do not vendor/duplicate protocol runtime code; use @kybernetria/pi-protocol and, for Pi SDK agent executors, @kybernetria/pi-protocol/sdk.
+- Do not use unpublished package versions like "latest" for @kybernetria/pi-protocol-* unless they are actually published.
+- For temporary local smoke tests only, file dependencies may point at local working trees, e.g. @kybernetria/pi-protocol as file:/var/home/kybernetria/Applications/pi/pi-protocol/packages/pi-protocol-minimal and @kybernetria/pi-protocol/sdk as file:/var/home/kybernetria/Applications/pi/pi-protocol/packages/pi-protocol-pi-sdk.
 - Never put machine-specific absolute file: dependencies in production/publishable packages. For production packages, use published semver dependencies, workspace/file-relative dependencies appropriate to the repo, or document the dependency expectation instead of hardcoding a local absolute path.
 - Import Pi extension types from @earendil-works/pi-coding-agent, never @mariozechner/pi-coding-agent.
 - The protocol fabric is the source of truth. The Pi protocol tool is a compact projection of registry/describe/invoke; do not create one Pi tool per provide.
@@ -45,7 +47,7 @@ export function modernContractChecklist(): string[] {
     "extension calls registerProtocolManifest()",
     "handler executions have matching createHandlers keys",
     "imports use @earendil-works/pi-coding-agent",
-    "runtime comes from @kyvernitria/pi-protocol-minimal / pi-sdk, not vendored code",
+    "runtime comes from @kybernetria/pi-protocol / pi-sdk, not vendored code",
     "cross-node calls use fabric.invoke(), not direct sibling imports",
   ];
 }
