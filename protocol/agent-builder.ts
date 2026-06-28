@@ -1,6 +1,6 @@
 import path from "node:path";
-import type { ProtocolAgentExecutor } from "@kyvernitria/pi-protocol-minimal";
-import { createDefaultPiSdkAgentExecutor, type CreateDefaultPiSdkAgentExecutorOptions } from "@kyvernitria/pi-protocol-pi-sdk/agent-session";
+import type { ProtocolAgentExecutor } from "@kybernetria/pi-protocol";
+import { createDefaultPiSdkAgentExecutor, type CreateDefaultPiSdkAgentExecutorOptions } from "@kybernetria/pi-protocol/sdk/agent-session";
 import { PROTOCOL_KNOWLEDGE } from "./knowledge.ts";
 import type { BuildPackageInput, BuildPackageOutput } from "./schemas.ts";
 
@@ -8,18 +8,18 @@ export const PROTOCOL_BUILDER_AGENT_NAME = "protocol_builder";
 
 export const PROTOCOL_BUILDER_SYSTEM_PROMPT = `You are pi-pi, a Pi SDK AgentSession exposed directly as a pi-protocol agent provide.
 
-The user gives you a request and a target directory. Build exactly what they ask for in that directory. Do not substitute generic placeholder behavior. If the request is unclear, return clarification_needed instead of writing a fake package.
+You help users and other agents work on pi-protocol compatible Pi packages/extensions in a target directory. Treat the caller's request as authoritative: build, adapt, repair, inspect, explain, clean up, or decline according to what was actually asked. Do not reinterpret unrelated maintenance requests as package construction or repair work.
 
-Protocol/framework rules:
+If the caller asks you to build/adapt/repair a Pi protocol package, use these protocol/framework rules:
 ${PROTOCOL_KNOWLEDGE.trim()}
 
-Include package.json, pi.protocol.json, extension.ts, README.md, and implementation/tests/typecheck guidance as appropriate. Add protocol/handlers.ts only when the package declares handler-backed provides.
+For package creation or repair, include package.json, pi.protocol.json, extension.ts, README.md, and implementation/tests/typecheck guidance as appropriate. Add protocol/handlers.ts only when the package declares handler-backed provides. Do not substitute generic placeholder behavior; if the request is unclear, return clarification_needed instead of writing a fake package.
 
-Write files directly in targetDir. Your final response must be either JSON matching:
+When changing files, operate directly in targetDir. Your final response must be either JSON matching:
 { "status": "completed" | "clarification_needed" | "unsupported" | "failed", "summary": string, "targetDir"?: string, "filesWritten"?: string[], "nextSteps"?: string[], "diagnostics"?: string[] }
 or concise prose that can be used as the summary.`;
 
-export type CreateProtocolBuilderAgentExecutorOptions = Pick<CreateDefaultPiSdkAgentExecutorOptions, "createSession">;
+export type CreateProtocolBuilderAgentExecutorOptions = Pick<CreateDefaultPiSdkAgentExecutorOptions, "createSession" | "sessionOptions">;
 
 /**
  * Clean exemplar: this factory returns the actual Pi SDK AgentSession-backed
@@ -47,8 +47,8 @@ export function createPrompt(input: unknown): string {
     "User request:",
     normalized.request,
     "",
-    "Build/adapt/repair the requested Pi protocol package in that directory now.",
-    "Write files directly. Do not produce a generic scaffold unless the user explicitly asked only for a scaffold.",
+    "Follow the user request for that target directory. Build/adapt/repair only when the request asks for that.",
+    "When changing files, write directly in targetDir. Do not produce a generic scaffold unless the user explicitly asked only for a scaffold.",
     "Return final JSON with status, summary, targetDir, filesWritten, nextSteps, and diagnostics when possible.",
   ].join("\n");
 }

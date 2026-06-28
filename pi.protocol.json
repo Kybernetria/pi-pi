@@ -10,6 +10,10 @@
       "systemPrompt": {
         "text": "This agent's full builder prompt is supplied by protocol/agent-builder.ts so pi-pi can keep its protocol knowledge in code and tests. It builds exactly the requested Pi package/extension in the supplied targetDir using pi-protocol 0.2.0.",
         "mode": "append"
+      },
+      "modelHint": {
+        "specific": "opencode-go/deepseek-v4-flash",
+        "thinkingLevel": "medium"
       }
     }
   },
