@@ -23,7 +23,7 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "file:/var/home/kyvernitria/.config/nvm/versions/node/v25.5.0/lib/node_modules/@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-coding-agent": "^0.75.4",
     "@types/node": "^24.5.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"

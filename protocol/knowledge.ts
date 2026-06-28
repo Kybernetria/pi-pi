@@ -17,8 +17,8 @@ export const PROTOCOL_KNOWLEDGE = `
 - Legacy top-level \`provide.handler\` or \`provide.agent\` shorthand is invalid.
 
 ### Agent-backed provides
-- Declare each agent under \`manifest.agents\` with at minimum \`description\` and \`systemPrompt\`.
-- \`systemPrompt\` supports \`{ text: string, mode: "append" | "replace" }\`. The default mode is \`"append"\`.
+- Declare each agent under \`manifest.agents\` with a useful \`description\`; add \`systemPrompt\` when the agent needs role/task instructions.
+- \`systemPrompt\` is optional and supports \`{ text: string, mode: "append" | "replace" }\`. The default mode is \`"append"\`.
 - Use \`createPiSdkAgentExecutorsFromManifest()\` from \`@kybernetria/pi-protocol/sdk/agent-session\` when registering multiple agents from the manifest automatically.
 - For custom single-agent executors, use \`createDefaultPiSdkAgentExecutor()\` from \`@kybernetria/pi-protocol/sdk/agent-session\`.
 - Agents may specify \`modelHint\`:
@@ -28,7 +28,7 @@ export const PROTOCOL_KNOWLEDGE = `
 - \`modelHint.specific\` should use \`"provider/model-id"\` format (e.g. \`"opencode-go/deepseek-v4-flash"\`).
 - Absent \`modelHint\` means normal Pi model selection/defaults apply.
 - \`modelHint.tier\` is advisory only and does not affect model selection.
-- \`modelHint.thinkingLevel\` may be \`"none"\`, \`"low"\`, \`"medium"\`, or \`"high"\`.
+- \`modelHint.thinkingLevel\` may be \`"off"\`, \`"minimal"\`, \`"low"\`, \`"medium"\`, \`"high"\`, or \`"xhigh"\`.
 
 ### Handler-backed provides
 - Create \`protocol/handlers.ts\` only when the package declares handler-backed provides.

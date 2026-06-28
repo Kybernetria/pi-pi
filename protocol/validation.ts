@@ -140,11 +140,8 @@ export async function validateProtocolPackage(packageDir: string): Promise<Valid
             issue(issues, `agent.modelHint.specific.format.${agentName}`, `Agent ${agentName} modelHint.specific "${hint.specific}" should use "provider/model-id" format`, "Add provider prefix like \"provider/model-id\".");
           }
         }
-        if (hint.thinkingLevel !== undefined && !["none", "low", "medium", "high"].includes(hint.thinkingLevel as string)) {
-          issue(issues, `agent.modelHint.thinkingLevel.${agentName}`, `Agent ${agentName} modelHint.thinkingLevel must be one of: none, low, medium, high`, "Fix thinkingLevel value.");
-        }
-        if (hint.tier !== undefined) {
-          issue(issues, `agent.modelHint.tier.${agentName}`, `Agent ${agentName} uses modelHint.tier which is advisory only`, "modelHint.tier does not affect model selection; use specific or omit.");
+        if (hint.thinkingLevel !== undefined && !["off", "minimal", "low", "medium", "high", "xhigh"].includes(hint.thinkingLevel as string)) {
+          issue(issues, `agent.modelHint.thinkingLevel.${agentName}`, `Agent ${agentName} modelHint.thinkingLevel must be one of: off, minimal, low, medium, high, xhigh`, "Fix thinkingLevel value.");
         }
       }
     }
@@ -200,14 +197,13 @@ export async function validateProtocolPackage(packageDir: string): Promise<Valid
   for (const rel of await collectTsFiles(root)) {
     const source = await fs.readFile(path.join(root, rel), "utf8");
 
-    // Legacy import checks
-    if (source.includes("@mariozechner/pi-coding-agent")) issue(issues, `imports.legacy.${rel}`, `${rel} imports legacy Pi package @mariozechner/pi-coding-agent`, "Use @earendil-works/pi-coding-agent.");
-    if (source.includes("@kyvernitria/pi-protocol-minimal")) issue(issues, `imports.split.minimal.${rel}`, `${rel} imports deprecated split package @kyvernitria/pi-protocol-minimal`, "Use @kybernetria/pi-protocol.");
-    if (source.includes("@kyvernitria/pi-protocol-pi-sdk")) issue(issues, `imports.split.sdk.${rel}`, `${rel} imports deprecated split package @kyvernitria/pi-protocol-pi-sdk`, "Use @kybernetria/pi-protocol/sdk.");
-    if (source.includes("@kyvernitria/pi-protocol-pi-tool")) issue(issues, `imports.split.tool.${rel}`, `${rel} imports deprecated split package @kyvernitria/pi-protocol-pi-tool`, "Use @kybernetria/pi-protocol/tool.");
-
-    // Cross-node direct sibling imports check
+    // Import checks. Only inspect actual import specifiers so documentation strings
+    // that mention deprecated packages as examples do not trigger false positives.
     for (const specifier of extractImportSpecifiers(source)) {
+      if (specifier === "@mariozechner/pi-coding-agent") issue(issues, `imports.legacy.${rel}`, `${rel} imports legacy Pi package @mariozechner/pi-coding-agent`, "Use @earendil-works/pi-coding-agent.");
+      if (specifier === "@kyvernitria/pi-protocol-minimal") issue(issues, `imports.split.minimal.${rel}`, `${rel} imports deprecated split package @kyvernitria/pi-protocol-minimal`, "Use @kybernetria/pi-protocol.");
+      if (specifier === "@kyvernitria/pi-protocol-pi-sdk") issue(issues, `imports.split.sdk.${rel}`, `${rel} imports deprecated split package @kyvernitria/pi-protocol-pi-sdk`, "Use @kybernetria/pi-protocol/sdk.");
+      if (specifier === "@kyvernitria/pi-protocol-pi-tool") issue(issues, `imports.split.tool.${rel}`, `${rel} imports deprecated split package @kyvernitria/pi-protocol-pi-tool`, "Use @kybernetria/pi-protocol/tool.");
       if (isForbiddenProtocolNodeImport(specifier, (packageJson as { name?: string } | null)?.name)) {
         issue(issues, `imports.sibling.${rel}`, `${rel} directly imports possible sibling protocol package ${specifier}`, "Use fabric.invoke() for cross-node calls.");
       }
