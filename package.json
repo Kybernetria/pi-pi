@@ -12,8 +12,7 @@
     "extensions": ["./extension.ts"]
   },
   "dependencies": {
-    "@kyvernitria/pi-protocol-minimal": "file:../pi-protocol/packages/pi-protocol-minimal",
-    "@kyvernitria/pi-protocol-pi-sdk": "file:../pi-protocol/packages/pi-protocol-pi-sdk"
+    "@kybernetria/pi-protocol": "file:../pi-protocol/packages/pi-protocol"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

@@ -12,11 +12,9 @@
   },
   "include": [
     "extension.ts",
-    "protocol/handlers.ts",
-    "protocol/builder.ts",
+    "protocol/agent-builder.ts",
     "protocol/knowledge.ts",
     "protocol/schemas.ts",
-    "protocol/templates.ts",
     "protocol/validation.ts",
     "scripts/test-pi-pi.ts"
   ]

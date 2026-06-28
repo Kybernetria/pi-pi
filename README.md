@@ -57,7 +57,7 @@ Built packages should:
 - register from `extension.ts` with `ensureProtocolFabric()` and `registerProtocolManifest()`
 - call `fabric.unregister(nodeId)` before registration
 - import Pi APIs from `@earendil-works/pi-coding-agent`
-- use `@kyvernitria/pi-protocol-minimal` and, when needed, `@kyvernitria/pi-protocol-pi-sdk`
+- use `@kybernetria/pi-protocol` and, when needed, `@kybernetria/pi-protocol/sdk`
 - keep Pi-specific APIs in the extension/adapter layer
 - use protocol fabric calls for cross-node interactions
 - only require `protocol/handlers.ts` when a generated package declares handler-backed provides

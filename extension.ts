@@ -49,9 +49,16 @@ function registerSlashCommands(pi: ExtensionAPI, fabric: ProtocolFabric): void {
       }
 
       try {
-        const { invokeProtocol } = await import("./protocol/invoke.js");
-        const result = await invokeProtocol(parsed);
-        postCommandResult(pi, `**pi_pi.build**\n\nResult: ${JSON.stringify(result, null, 2)}`);
+        const result = await fabric.invoke({
+          nodeId: NODE_ID,
+          provide: "build_package",
+          input: { request: parsed.request, targetDir: parsed.targetDir },
+        });
+        if (result.ok) {
+          postCommandResult(pi, `**pi_pi.build**\n\nResult: ${JSON.stringify(result.output, null, 2)}`);
+        } else {
+          postCommandResult(pi, `**pi_pi.build**\n\nError: ${result.error.code}: ${result.error.message}`);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         postCommandResult(pi, `**pi_pi.build**\n\nError: ${msg}`);

@@ -7,7 +7,7 @@
 - Public protocol surface is `pi_pi.build_package` plus optional chat alias `pi_pi.chat`.
 - Use `protocolVersion: "0.2.0"` and canonical provide `execution` objects.
 - Do not use legacy top-level `handler` / `agent` shorthand.
-- Do not vendor protocol runtime code; use `@kyvernitria/pi-protocol-minimal` and Pi SDK adapters where needed.
+- Do not vendor protocol runtime code; use `@kybernetria/pi-protocol` and Pi SDK adapters where needed.
 - Use `@earendil-works/pi-coding-agent`, never the legacy `@mariozechner/pi-coding-agent` package.
 - Keep Pi-specific code in `extension.ts`; keep package-building knowledge and validation under `protocol/`.
 - Cross-node calls must go through the protocol fabric, not direct sibling package imports.

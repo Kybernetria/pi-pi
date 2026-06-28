@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createProtocolFabric, registerProtocolManifest, type PiProtocolManifest, type ProtocolRuntimeEvent } from "@kyvernitria/pi-protocol-minimal";
-import type { PiSdkAgentSessionLike, PiSdkAgentSessionEventLike } from "@kyvernitria/pi-protocol-pi-sdk";
+import { createProtocolFabric, registerProtocolManifest, type PiProtocolManifest, type ProtocolRuntimeEvent } from "@kybernetria/pi-protocol";
+import type { PiSdkAgentSessionLike, PiSdkAgentSessionEventLike } from "@kybernetria/pi-protocol/sdk";
 import manifestJson from "../pi.protocol.json" with { type: "json" };
 import { createProtocolBuilderAgentExecutor } from "../protocol/agent-builder.ts";
 
