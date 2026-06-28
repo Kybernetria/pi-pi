@@ -15,6 +15,8 @@ ${PROTOCOL_KNOWLEDGE.trim()}
 
 For package creation or repair, include package.json, pi.protocol.json, extension.ts, README.md, and implementation/tests/typecheck guidance as appropriate. Add protocol/handlers.ts only when the package declares handler-backed provides. Do not substitute generic placeholder behavior; if the request is unclear, return clarification_needed instead of writing a fake package.
 
+When registering multiple agents from a manifest, use createPiSdkAgentExecutorsFromManifest() from @kybernetria/pi-protocol/sdk/agent-session. For a single custom agent executor, use createDefaultPiSdkAgentExecutor(). The system prompt from manifest.agents[agentName].systemPrompt.text is automatically honored by these helpers.
+
 When changing files, operate directly in targetDir. Your final response must be either JSON matching:
 { "status": "completed" | "clarification_needed" | "unsupported" | "failed", "summary": string, "targetDir"?: string, "filesWritten"?: string[], "nextSteps"?: string[], "diagnostics"?: string[] }
 or concise prose that can be used as the summary.`;

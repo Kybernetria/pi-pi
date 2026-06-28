@@ -20,7 +20,7 @@
   "provides": [
     {
       "name": "build_package",
-      "description": "Invoke this protocol agent to build/adapt/repair the requested Pi package or extension in targetDir.",
+      "description": "Invoke the pi-pi builder agent to build/adapt/repair the requested pi-protocol compatible Pi package or extension in targetDir. Uses pi-protocol 0.2.0 manifest, ensureProtocolFabric, registerProtocolManifest, and canonical execution objects.",
       "inputSchema": {
         "type": "object",
         "required": ["request", "targetDir"],

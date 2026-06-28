@@ -39,6 +39,24 @@ There is no handler-style wrapper that creates an inner SDK executor. Validation
 
 `targetDir` is required because `pi-pi` is a file-writing builder.
 
+### Cross-node invocation from other packages
+
+```json
+{
+  "nodeId": "pi_pi",
+  "provide": "build_package",
+  "input": {
+    "request": "Create a project-specific extension that does X",
+    "targetDir": "/tmp/my-extension"
+  },
+  "callerNodeId": "my_agent.build_package",
+  "traceId": "workflow-123",
+  "spanId": "step-build"
+}
+```
+
+Propagate `traceId`, `spanId`, and optional `callerNodeId` when pi-pi is invoked as part of a larger orchestrated workflow.
+
 ## Slash command
 
 ```text
@@ -57,10 +75,17 @@ Built packages should:
 - register from `extension.ts` with `ensureProtocolFabric()` and `registerProtocolManifest()`
 - call `fabric.unregister(nodeId)` before registration
 - import Pi APIs from `@earendil-works/pi-coding-agent`
-- use `@kybernetria/pi-protocol` and, when needed, `@kybernetria/pi-protocol/sdk`
+- use the unified `@kybernetria/pi-protocol` package (not the old split packages `pi-protocol-minimal`, `pi-protocol-pi-sdk`, `pi-protocol-pi-tool`)
+- use `@kybernetria/pi-protocol/sdk` or `@kybernetria/pi-protocol/sdk/agent-session` for Pi SDK agent executors
 - keep Pi-specific APIs in the extension/adapter layer
-- use protocol fabric calls for cross-node interactions
+- use protocol fabric calls (`fabric.invoke()`) for cross-node interactions, not direct sibling imports
 - only require `protocol/handlers.ts` when a generated package declares handler-backed provides
+- use `createPiSdkAgentExecutorsFromManifest()` when registering multiple agents
+- use `systemPrompt: { text, mode }` format for agent prompts
+- set `modelHint` with `"provider/model-id"` format when a specific model is needed; omit for defaults
+- avoid absolute `file:` dependencies in production packages
+- document protocol invoke examples in the README
+- include tests covering registration, describe, invoke, invalid inputs, and typecheck
 
 ## Global install
 
@@ -83,3 +108,17 @@ npm install
 npm run typecheck
 npm run test:pi-pi
 ```
+
+### Running tests
+
+```bash
+npm run test:pi-pi
+```
+
+The test suite verifies:
+- Node registration and description
+- Provide existence and canonical execution shape
+- Invalid input handling (error code INVALID_INPUT)
+- Invocation with trace/span propagation
+- Session control (prompt content verification)
+- Runtime event emission
